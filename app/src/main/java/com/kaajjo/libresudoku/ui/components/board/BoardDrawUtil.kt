@@ -113,10 +113,15 @@ fun DrawScope.drawNumbers(
                         else -> textPaint
                     }
 
-                    val textToDraw =
-                        if (questions) "?" else board[i][j].value.toString(16).uppercase()
+                    val v = board[i][j].value
+                    val textToDraw = when {
+                        questions -> "?"
+                        v in 1..9 -> com.kaajjo.libresudoku.KanjiMapper.toSymbol(v)
+                        else -> v.toString(16).uppercase() // A/B/C... for 10+
+                    }
+
                     val textBounds = android.graphics.Rect()
-                    textPaint.getTextBounds(textToDraw, 0, 1, textBounds)
+                    paint.getTextBounds(textToDraw, 0, textToDraw.length, textBounds) // use full length
                     val textWidth = paint.measureText(textToDraw)
 
                     canvas.nativeCanvas.drawText(

@@ -34,7 +34,7 @@ import androidx.compose.ui.unit.sp
 import com.kaajjo.libresudoku.core.qqwing.GameType
 import com.kaajjo.libresudoku.ui.theme.LibreSudokuTheme
 import com.kaajjo.libresudoku.ui.util.LightDarkPreview
-
+import com.kaajjo.libresudoku.KanjiMapper
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun KeyboardItem(
@@ -81,10 +81,11 @@ fun KeyboardItem(
             verticalArrangement = Arrangement.Top
         ) {
             Text(
-                text = number.toString(16).uppercase(),
+                text = KanjiMapper.toSymbol(number),
                 fontWeight = FontWeight.Bold,
                 fontSize = keyboardFontSize,
-            )
+                )
+
             if (remainingUses != null) {
                 Text(
                     text = remainingUses.toString(),

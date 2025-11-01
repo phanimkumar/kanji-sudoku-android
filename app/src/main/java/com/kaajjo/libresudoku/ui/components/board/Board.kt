@@ -50,6 +50,7 @@ import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.sqrt
 
+
 /**
  * Sudoku board
  *
@@ -115,6 +116,7 @@ fun Board(
             .fillMaxWidth()
             .aspectRatio(1f)
             .padding(4.dp)
+        
     ) {
         val maxWidth = constraints.maxWidth.toFloat()
 
