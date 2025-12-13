@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name" translatable="false">LibreSudoku</string>
+    <string name="app_name" translatable="false">Kanji Sudoku</string>
     <string name="nav_bar_statistics">Statistics</string>
     <string name="nav_bar_home">Home</string>
     <string name="nav_bar_more">More</string>
@@ -92,7 +92,7 @@
     <string name="action_show_mine_sudoku">Show mine</string>
     <string name="onboard_title">Welcome</string>
     <string name="intro_what_is_sudoku">A classic sudoku looks as follows</string>
-    <string name="intro_rules">The goal of the game is to fill all the cells with numbers from 1 to 9. So that the values do not repeat in any column, row or smaller box (3x3)</string>
+    <string name="intro_rules">Fill the grid with Kanji symbols so that each symbol appears only once in every row, column, and 3×3 box.</string>
     <string name="onboard_recommendation_prefs">We recommend that you have a look at the settings tab so that you can customize the application for your needs</string>
     <string name="action_start">Start</string>
     <string name="toolbar_undo_description">Undo. Just undo</string>
@@ -103,7 +103,7 @@
     <string name="first_game_dialog_got_it">Got it</string>
     <string name="action_exit">Exit</string>
     <string name="action_stay">Stay</string>
-    <string name="mistakes_number_out_of">Mistakes %1$d/%2$d</string>
+    <string name="mistakes_number_out_of">Errors %1$d/%2$d</string>
     <string name="reset_game_text">Want to reset the current puzzle?</string>
     <string name="give_up_text">Do you want to give up? If you give up, you will be able to see the final solution</string>
     <string name="game_completed">Game completed</string>

@@ -7,7 +7,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import com.kaajjo.libresudoku.core.Cell
 import com.kaajjo.libresudoku.core.qqwing.Cage
 
-fun DrawScope.drawKillerCage(
+ fun DrawScope.drawKillerCage(
     cage: Cage,
     cellWithSum: Cell,
     cellSize: Float,

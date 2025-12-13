@@ -1,5 +1,11 @@
 package com.kaajjo.libresudoku.ui.game.components
 
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
 import android.view.HapticFeedbackConstants
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -22,7 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
+
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
@@ -53,12 +59,12 @@ fun KeyboardItem(
     val keyboardFontSize = if (remainingUses != null) {
         25.sp
     } else {
-        36.sp
+        25.sp
     }
     Box(
         modifier = modifier
             .clip(CircleShape)
-            .background(color)
+            .background(Color(0xFFFDE8EC))
             .combinedClickable(
                 interactionSource = mutableInteractionSource,
                 onClick = {
@@ -83,9 +89,12 @@ fun KeyboardItem(
             Text(
                 text = KanjiMapper.toSymbol(number),
                 fontWeight = FontWeight.Bold,
-                fontSize = keyboardFontSize,
-                )
-
+                fontSize = 25.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()     // fill horizontally only
+                    .align(Alignment.CenterHorizontally)   // keep centered
+            )
             if (remainingUses != null) {
                 Text(
                     text = remainingUses.toString(),
@@ -193,6 +202,17 @@ private fun KeyboardRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 4.dp)
+            .background(
+                brush = Brush.horizontalGradient(
+                    listOf(
+                        Color(0xFFFDE8EC),
+                        Color(0xFFFDE8EC)
+                    )
+                ),
+                shape = RoundedCornerShape(14.dp)
+            )
+            .padding(vertical = 6.dp, horizontal = 8.dp)
             .then(modifier),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -200,7 +220,6 @@ private fun KeyboardRow(
         content()
     }
 }
-
 
 @LightDarkPreview
 @Composable

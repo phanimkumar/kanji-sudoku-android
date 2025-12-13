@@ -1,5 +1,14 @@
 package com.kaajjo.libresudoku.ui.components.board
 
+import com.kaajjo.libresudoku.ui.theme.KanjiBoardCellBackground
+import com.kaajjo.libresudoku.KanjiMapper
+
+import com.kaajjo.libresudoku.ui.theme.KanjiOuterBorder
+import com.kaajjo.libresudoku.ui.theme.KanjiSelectedCell
+import com.kaajjo.libresudoku.ui.theme.KanjiRowColHighlight
+import com.kaajjo.libresudoku.ui.theme.KanjiSameSymbolHighlight
+import com.kaajjo.libresudoku.ui.theme.KanjiSubgridBorder
+import com.kaajjo.libresudoku.ui.theme.KanjiCellBorder
 import android.graphics.Paint
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -49,7 +58,7 @@ import com.kaajjo.libresudoku.ui.util.LightDarkPreview
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.sqrt
-
+import androidx.compose.ui.graphics.Brush
 
 /**
  * Sudoku board
@@ -110,14 +119,17 @@ fun Board(
     boardColors: SudokuBoardColors = LocalBoardColors.current,
     crossHighlight: Boolean = false,
     cages: List<Cage> = emptyList()
-) {
+)
+{
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
             .aspectRatio(1f)
             .padding(4.dp)
         
-    ) {
+    )
+
+    {
         val maxWidth = constraints.maxWidth.toFloat()
 
         // single cell size
@@ -127,14 +139,18 @@ fun Board(
 
         val errorColor = boardColors.errorColor
         val foregroundColor = boardColors.foregroundColor
-        val thickLineColor = boardColors.thickLineColor
-        val thinLineColor = boardColors.thinLineColor
+        val outerFrameColor = KanjiOuterBorder
+        val thickLineColor = KanjiSubgridBorder  // Navy Blue
+        val thinLineColor = KanjiCellBorder   // Black
         // locked numbers
         val altForegroundColor = boardColors.altForegroundColor
         val notesColor = boardColors.notesColor
 
         // highlight (cells)
         val highlightColor = boardColors.highlightColor
+        val selectedCellColor = KanjiSelectedCell
+        val rowColHighlightColor = KanjiRowColHighlight
+        val sameSymbolHighlightColor = KanjiSameSymbolHighlight
 
         val vertThick by remember(size) { mutableIntStateOf(floor(sqrt(size.toFloat())).toInt()) }
         val horThick by remember(size) { mutableIntStateOf(ceil(sqrt(size.toFloat())).toInt()) }
@@ -143,7 +159,7 @@ fun Board(
         with(LocalDensity.current) {
             LaunchedEffect(autoFontSize, size, mainTextSize) {
                 fontSizePx = if (autoFontSize) {
-                    (cellSize * 0.9f).toSp().toPx()
+                    (cellSize * 0.70f).toSp().toPx()
                 } else {
                     mainTextSize.toPx()
                 }
@@ -152,8 +168,8 @@ fun Board(
         val noteSizePx = with(LocalDensity.current) { (cellSizeDivWidth * 0.8f).toSp().toPx() }
         val killerSumSizePx = with(LocalDensity.current) { noteSizePx * 1.1f }
 
-        val thinLineWidth = with(LocalDensity.current) { 1.3.dp.toPx() }
-        val thickLineWidth = with(LocalDensity.current) { 1.3.dp.toPx() }
+        val thinLineWidth = with(LocalDensity.current) { 1.6.dp.toPx() }
+        val thickLineWidth = with(LocalDensity.current) { 3.dp.toPx() }
 
         val killerSumBounds by remember { mutableStateOf(android.graphics.Rect()) }
 
@@ -162,7 +178,7 @@ fun Board(
         var textPaint by remember(fontSizePx) {
             mutableStateOf(
                 Paint().apply {
-                    color = foregroundColor.toArgb()
+                    color = Color(0xFF8B0000).toArgb()
                     isAntiAlias = true
                     textSize = fontSizePx
                 }
@@ -182,7 +198,7 @@ fun Board(
         var lockedTextPaint by remember {
             mutableStateOf(
                 Paint().apply {
-                    color = altForegroundColor.toArgb()
+                    color = Color(0xFF8B0000).toArgb()
                     isAntiAlias = true
                     textSize = fontSizePx
                 }
@@ -222,7 +238,7 @@ fun Board(
         val context = LocalContext.current
         LaunchedEffect(mainTextSize, noteTextSize, boardColors) {
             textPaint = Paint().apply {
-                color = foregroundColor.toArgb()
+                color = Color(0xFF8B0000).toArgb()
                 isAntiAlias = true
                 textSize = fontSizePx
             }
@@ -237,7 +253,7 @@ fun Board(
                 textSize = fontSizePx
             }
             lockedTextPaint = Paint().apply {
-                color = altForegroundColor.toArgb()
+                color = Color(0xFF8B0000).toArgb()
                 isAntiAlias = true
                 textSize = fontSizePx
             }
@@ -314,6 +330,11 @@ fun Board(
         Canvas(
             modifier = if (zoomable) boardModifier.then(zoomModifier) else boardModifier
         ) {
+            drawRect(
+                color = KanjiBoardCellBackground,
+                size = this.size
+               )
+
             val cornerRadius = CornerRadius(15f, 15f)
 
             if (selectedCell.row >= 0 && selectedCell.col >= 0) {
@@ -329,7 +350,7 @@ fun Board(
                         ),
                         size = Size(cellSize, cellSize)
                     ),
-                    color = highlightColor.copy(alpha = 0.2f),
+                    color = selectedCellColor,
                     cornerRadius = cornerRadius
                 )
                 if (positionLines) {
@@ -337,7 +358,7 @@ fun Board(
                         row = selectedCell.row,
                         col = selectedCell.col,
                         gameSize = size,
-                        color = highlightColor.copy(alpha = 0.1f),
+                        color = rowColHighlightColor,
                         cellSize = cellSize,
                         lineLength = maxWidth,
                         cornerRadius = cornerRadius
@@ -359,13 +380,40 @@ fun Board(
                                     ),
                                     size = Size(cellSize, cellSize)
                                 ),
-                                color = highlightColor.copy(alpha = 0.2f),
+                                color = sameSymbolHighlightColor,
                                 cornerRadius = cornerRadius
                             )
                         }
                     }
                 }
             }
+            // 🔴 Error cells: fill entire cell with red background
+            if (errorsHighlight) {
+                for (i in 0 until size) {
+                    for (j in 0 until size) {
+                        val cell = board[i][j]
+                        if (cell.error) {
+                            drawRoundCell(
+                                row = i,
+                                col = j,
+                                gameSize = size,
+                                rect = Rect(
+                                    offset = Offset(
+                                        x = j * cellSize,
+                                        y = i * cellSize
+                                    ),
+                                    size = Size(cellSize, cellSize)
+                                ),
+                                // Use board error color as background with some transparency
+                                color = errorColor.copy(alpha = 0.35f),
+                                cornerRadius = cornerRadius
+                            )
+                        }
+                    }
+                }
+            }
+
+
             cellsToHighlight?.forEach {
                 drawRoundCell(
                     row = it.row,
@@ -384,7 +432,7 @@ fun Board(
             }
 
             drawBoardFrame(
-                thickLineColor = thickLineColor,
+                thickLineColor = outerFrameColor,
                 thickLineWidth = thickLineWidth,
                 maxWidth = maxWidth,
                 cornerRadius = CornerRadius(15f, 15f)
@@ -453,6 +501,8 @@ fun Board(
                     val textToDraw = if (questions) "?" else cage.sum.toString()
                     killerSumPaint.getTextBounds(textToDraw, 0, textToDraw.length, killerSumBounds)
                     val cellWithSum = cage.cells.first()
+                    killerSumPaint.color = Color(0xFF000000).toArgb()
+
                     drawIntoCanvas { canvas ->
                         canvas.nativeCanvas.drawText(
                             textToDraw,

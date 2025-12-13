@@ -1,5 +1,5 @@
 package com.kaajjo.libresudoku
-
+import com.kaajjo.libresudoku.BuildConfig
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
@@ -124,28 +124,15 @@ class MainActivity : AppCompatActivity() {
                     initialValue = PreferencesConstants.DEFAULT_MONET_SUDOKU_BOARD
                 )
 
-                val boardColors =
-                    if (monetSudokuBoard) {
-                        SudokuBoardColorsImpl(
-                            foregroundColor = BoardColors.foregroundColor,
-                            notesColor = BoardColors.notesColor,
-                            altForegroundColor = BoardColors.altForegroundColor,
-                            errorColor = BoardColors.errorColor,
-                            highlightColor = BoardColors.highlightColor,
-                            thickLineColor = BoardColors.thickLineColor,
-                            thinLineColor = BoardColors.thinLineColor
-                        )
-                    } else {
-                        SudokuBoardColorsImpl(
-                            foregroundColor = MaterialTheme.colorScheme.onSurface,
-                            notesColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
-                            altForegroundColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                            errorColor = BoardColors.errorColor,
-                            highlightColor = MaterialTheme.colorScheme.outline,
-                            thickLineColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.55f),
-                            thinLineColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.25f)
-                        )
-                    }
+                val boardColors = SudokuBoardColorsImpl(
+                    foregroundColor = BoardColors.foregroundColor,
+                    notesColor = BoardColors.notesColor,
+                    altForegroundColor = BoardColors.altForegroundColor,
+                    errorColor = BoardColors.errorColor,
+                    highlightColor = BoardColors.highlightColor,
+                    thickLineColor = BoardColors.thickLineColor,
+                    thinLineColor = BoardColors.thinLineColor
+                )
                 var latestRelease by remember { mutableStateOf<Release?>(null) }
                 if (autoUpdateChannel != UpdateChannel.Disabled) {
                     LaunchedEffect(Unit) {

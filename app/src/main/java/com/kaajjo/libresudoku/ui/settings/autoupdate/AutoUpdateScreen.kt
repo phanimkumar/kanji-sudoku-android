@@ -203,9 +203,9 @@ fun AutoUpdateScreen(
                                             ).collect { downloadStatus ->
                                                 currentDownloadStatus = downloadStatus
                                                 if (downloadStatus is DownloadStatus.Finished) {
-                                                    installApkLauncher.launch(
+                                                    /*installApkLauncher.launch(
                                                         Manifest.permission.REQUEST_INSTALL_PACKAGES
-                                                    )
+                                                    )*/
                                                 }
                                             }
                                         }

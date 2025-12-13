@@ -256,7 +256,7 @@ fun SavedGameScreen(
                                     contentDescription = null
                                 )
                             },
-                            onClick = { navigator.navigate(ExploreFolderScreenDestination(folderUid = it.uid)) },
+                            onClick = { navigator.navigate(ExploreFolderScreenDestination()) },
                             label = { Text(it.name) }
                         )
                     }

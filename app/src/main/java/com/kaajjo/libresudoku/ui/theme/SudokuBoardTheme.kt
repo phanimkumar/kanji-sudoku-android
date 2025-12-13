@@ -7,41 +7,41 @@ import com.kaajjo.libresudoku.ui.theme.ColorUtils.blend
 import com.kaajjo.libresudoku.ui.theme.ColorUtils.harmonizeWithPrimary
 
 object BoardColors {
+
+    // User-entered numbers (your moves) - dark maroon, ink-like
     inline val foregroundColor: Color
         @Composable
-        get() = MaterialTheme.colorScheme.onSurface.blend(
-            MaterialTheme.colorScheme.primary,
-            fraction = 0.65f
-        )
+        get() = Color(0xFF00FF00)
 
-    inline val notesColor: Color
-        @Composable
-        get() = MaterialTheme.colorScheme.onSurfaceVariant.blend(
-            MaterialTheme.colorScheme.secondary,
-            0.4f
-        )
+    // Given / locked numbers (original puzzle) - deep navy, stable
     inline val altForegroundColor: Color
         @Composable
-        get() = MaterialTheme.colorScheme.onSurfaceVariant.blend(
-            MaterialTheme.colorScheme.secondary,
-            0.5f
-        ).copy(alpha = 0.85f)
+        get() = Color(0xFFFF00FF)
 
+    // Notes / candidates - soft grey
+    inline val notesColor: Color
+        @Composable
+        get() = Color(0xFF0000FF)
+
+    // Error text / outlines - strong red, distinct from maroon
     inline val errorColor: Color
         @Composable
-        get() = Color(230, 67, 83).harmonizeWithPrimary()
+        get() = Color(0xFFFF0000)
 
+    // Cell highlight (selected / same number) - light blue wash
     inline val highlightColor: Color
         @Composable
-        get() = MaterialTheme.colorScheme.secondary
+        get() = Color(0xFFFFFF00)
 
+    // Thick 3×3 grid lines - rich navy
     inline val thickLineColor: Color
         @Composable
-        get() = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.55f)
+        get() = Color(0xFF00FFFF)
 
+    // Thin cell lines - black
     inline val thinLineColor: Color
         @Composable
-        get() = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.25f)
+        get() = Color(0xFF000000)
 }
 
 interface SudokuBoardColors {

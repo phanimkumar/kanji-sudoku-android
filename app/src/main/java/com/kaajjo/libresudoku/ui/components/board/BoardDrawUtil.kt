@@ -1,6 +1,7 @@
 package com.kaajjo.libresudoku.ui.components.board
 
 import android.graphics.Paint
+import android.graphics.Rect as AndroidRect
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -12,10 +13,20 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
+import com.kaajjo.libresudoku.KanjiMapper
 import com.kaajjo.libresudoku.core.Cell
 import com.kaajjo.libresudoku.core.Note
+import com.kaajjo.libresudoku.core.qqwing.Cage
+import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.sqrt
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.toArgb
+import com.kaajjo.libresudoku.ui.theme.KanjiErrorColor
+import com.kaajjo.libresudoku.ui.theme.KanjiLockedColor
+import com.kaajjo.libresudoku.ui.theme.KanjiSymbolColor
+
+/* -------------------- CELL HIGHLIGHT -------------------- */
 
 fun DrawScope.drawRoundCell(
     row: Int,
@@ -36,11 +47,10 @@ fun DrawScope.drawRoundCell(
             )
         )
     }
-    drawPath(
-        path = path,
-        color = color
-    )
+    drawPath(path = path, color = color)
 }
+
+/* -------------------- NOTES -------------------- */
 
 fun DrawScope.drawNotes(
     size: Int,
@@ -50,22 +60,25 @@ fun DrawScope.drawNotes(
     notesToHighlight: List<Note>,
     cellSize: Float,
     cellSizeDivWidth: Float,
-    killerSumBounds: android.graphics.Rect,
+    killerSumBounds: AndroidRect,
 ) {
-    val noteBounds = android.graphics.Rect()
-
+    val noteBounds = AndroidRect()
     paint.getTextBounds("1", 0, 1, noteBounds)
-    val cellDivHeight = (cellSize - killerSumBounds.height() * 1.5f) / floor(sqrt(size.toFloat()))
+
+    val perRow = floor(sqrt(size.toFloat()))
+    val cellDivHeight = (cellSize - killerSumBounds.height() * 1.5f) / perRow
 
     drawIntoCanvas { canvas ->
         notes.forEach { note ->
-            val textToDraw = note.value.toString(16).uppercase()
+            val textToDraw = if (note.value in 1..9) {
+                KanjiMapper.toSymbol(note.value)   // Kanji for normal 9x9 notes
+            } else {
+                note.value.toString(16).uppercase() // fallback for 10+ (if ever used)
+            }
             val noteTextMeasure = paint.measureText(textToDraw)
 
             val noteCol = getNoteColumnNumber(note.value, size)
             val noteRow = getNoteRowNumber(note.value, size)
-
-
 
             val horizontalPadding =
                 if (noteRow == 0) noteTextMeasure / 3f
@@ -73,11 +86,13 @@ fun DrawScope.drawNotes(
                 else if (noteRow == 2 && note.value > 9) 0f
                 else -(noteTextMeasure / 3f)
 
-
             if (notesToHighlight.contains(note)) {
                 canvas.nativeCanvas.drawCircle(
-                    note.col * cellSize + cellSizeDivWidth / 2f + (cellSizeDivWidth * noteRow) + horizontalPadding,
-                    note.row * cellSize + noteBounds.height() * 1.5f + killerSumBounds.height() + (cellDivHeight * noteCol) - (noteBounds.height() * 0.5f),
+                    note.col * cellSize + cellSizeDivWidth / 2f +
+                            (cellSizeDivWidth * noteRow) + horizontalPadding,
+                    note.row * cellSize + noteBounds.height() * 1.5f +
+                            killerSumBounds.height() + (cellDivHeight * noteCol) -
+                            (noteBounds.height() * 0.5f),
                     noteTextMeasure * 1.1f,
                     highlightPaint
                 )
@@ -85,13 +100,17 @@ fun DrawScope.drawNotes(
 
             canvas.nativeCanvas.drawText(
                 textToDraw,
-                note.col * cellSize + cellSizeDivWidth / 2f + (cellSizeDivWidth * noteRow) - noteTextMeasure / 2f + horizontalPadding,
-                note.row * cellSize + noteBounds.height() * 1.5f + killerSumBounds.height() + (cellDivHeight * noteCol),
+                note.col * cellSize + cellSizeDivWidth / 2f +
+                        (cellSizeDivWidth * noteRow) - noteTextMeasure / 2f + horizontalPadding,
+                note.row * cellSize + noteBounds.height() * 1.5f +
+                        killerSumBounds.height() + (cellDivHeight * noteCol),
                 paint
             )
         }
     }
 }
+
+/* -------------------- NUMBERS (KANJI + COLORS) -------------------- */
 
 fun DrawScope.drawNumbers(
     size: Int,
@@ -103,38 +122,50 @@ fun DrawScope.drawNumbers(
     questions: Boolean,
     cellSize: Float
 ) {
+    // Fix default colors (Japanese style)
+    errorTextPaint.color = KanjiErrorColor.toArgb()
+    lockedTextPaint.color = KanjiLockedColor.toArgb()
+    textPaint.color = KanjiSymbolColor.toArgb()
+
+    val textBounds = AndroidRect()
+    textPaint.getTextBounds("1", 0, 1, textBounds)
+    val width = textPaint.measureText("1")
+
     drawIntoCanvas { canvas ->
         for (i in 0 until size) {
             for (j in 0 until size) {
-                if (board[i][j].value != 0) {
-                    val paint = when {
-                        board[i][j].error && highlightErrors -> errorTextPaint
-                        board[i][j].locked -> lockedTextPaint
-                        else -> textPaint
-                    }
+                val cell = board[i][j]
+                if (cell.value == 0) continue
 
-                    val v = board[i][j].value
-                    val textToDraw = when {
-                        questions -> "?"
-                        v in 1..9 -> com.kaajjo.libresudoku.KanjiMapper.toSymbol(v)
-                        else -> v.toString(16).uppercase() // A/B/C... for 10+
-                    }
-
-                    val textBounds = android.graphics.Rect()
-                    paint.getTextBounds(textToDraw, 0, textToDraw.length, textBounds) // use full length
-                    val textWidth = paint.measureText(textToDraw)
-
-                    canvas.nativeCanvas.drawText(
-                        textToDraw,
-                        board[i][j].col * cellSize + (cellSize - textWidth) / 2f,
-                        board[i][j].row * cellSize + (cellSize + textBounds.height()) / 2f,
-                        paint
-                    )
+                val paint = when {
+                    highlightErrors && cell.error -> errorTextPaint
+                    cell.locked -> lockedTextPaint
+                    else -> textPaint
                 }
+
+                val v = cell.value
+                val textToDraw = when {
+                    questions -> "?"
+                    v in 1..9 -> KanjiMapper.toSymbol(v)
+                    else -> v.toString(16).uppercase() // A/B/C… for 10+
+                }
+
+                val localBounds = AndroidRect()
+                paint.getTextBounds(textToDraw, 0, textToDraw.length, localBounds)
+                val textWidth = paint.measureText(textToDraw)
+
+                canvas.nativeCanvas.drawText(
+                    textToDraw,
+                    cell.col * cellSize + (cellSize - textWidth) / 2f,
+                    cell.row * cellSize + (cellSize + localBounds.height()) / 2f,
+                    paint
+                )
             }
         }
     }
 }
+
+/* -------------------- BOARD FRAME -------------------- */
 
 fun DrawScope.drawBoardFrame(
     thickLineColor: Color,
@@ -150,6 +181,46 @@ fun DrawScope.drawBoardFrame(
         style = Stroke(width = thickLineWidth)
     )
 }
+
+/* -------------------- POSITION LINES (ROW & COLUMN) -------------------- */
+
+fun DrawScope.drawPositionLines(
+    row: Int,
+    col: Int,
+    gameSize: Int,
+    color: Color,
+    cellSize: Float,
+    lineLength: Float,
+    cornerRadius: CornerRadius
+) {
+    // Highlight entire row
+    drawRoundCell(
+        row = row,
+        col = 0,
+        gameSize = gameSize,
+        rect = Rect(
+            offset = Offset(0f, row * cellSize),
+            size = Size(lineLength, cellSize)
+        ),
+        color = color,
+        cornerRadius = cornerRadius
+    )
+
+    // Highlight entire column
+    drawRoundCell(
+        row = 0,
+        col = col,
+        gameSize = gameSize,
+        rect = Rect(
+            offset = Offset(col * cellSize, 0f),
+            size = Size(cellSize, lineLength)
+        ),
+        color = color,
+        cornerRadius = cornerRadius
+    )
+}
+
+/* -------------------- ROUND RECT HELPER -------------------- */
 
 fun roundRectForCell(
     row: Int,
@@ -173,6 +244,8 @@ fun roundRectForCell(
     )
 }
 
+/* -------------------- CROSS HIGHLIGHT -------------------- */
+
 fun DrawScope.drawCrossSelection(
     gameSize: Int,
     sectionHeight: Int,
@@ -195,3 +268,34 @@ fun DrawScope.drawCrossSelection(
         }
     }
 }
+
+/* -------------------- KILLER CAGES -------------------- */
+
+
+/* -------------------- HELPERS -------------------- */
+
+private fun getNoteColumnNumber(value: Int, size: Int): Int {
+    val perRow = floor(sqrt(size.toFloat())).toInt().coerceAtLeast(1)
+    return (value - 1) / perRow
+}
+
+private fun getNoteRowNumber(value: Int, size: Int): Int {
+    val perRow = floor(sqrt(size.toFloat())).toInt().coerceAtLeast(1)
+    return (value - 1) % perRow
+}
+
+fun getSectionWidthForSize(size: Int): Int =
+    when (size) {
+        6 -> 3
+        9 -> 3
+        12 -> 4
+        else -> ceil(sqrt(size.toFloat())).toInt().coerceAtLeast(1)
+    }
+
+fun getSectionHeightForSize(size: Int): Int =
+    when (size) {
+        6 -> 2
+        9 -> 3
+        12 -> 3
+        else -> floor(sqrt(size.toFloat())).toInt().coerceAtLeast(1)
+    }

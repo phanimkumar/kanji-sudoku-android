@@ -9,32 +9,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 
-fun DrawScope.drawPositionLines(
-    row: Int,
-    col: Int,
-    gameSize: Int,
-    cellSize: Float,
-    lineLength: Float,
-    color: Color,
-    cornerRadius: CornerRadius
-) {
-    drawPositionLineVertical(
-        col = col,
-        gameSize = gameSize,
-        cellSize = cellSize,
-        lineLength = lineLength,
-        color = color,
-        cornerRadius = cornerRadius
-    )
-    drawPositionLineHorizontal(
-        row = row,
-        gameSize = gameSize,
-        cellSize = cellSize,
-        lineLength = lineLength,
-        color = color,
-        cornerRadius = cornerRadius
-    )
-}
 
 private fun DrawScope.drawPositionLineVertical(
     col: Int,

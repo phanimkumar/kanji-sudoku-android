@@ -290,7 +290,7 @@ fun FoldersScreen(
                             name = item.name,
                             puzzlesCount = puzzlesCount,
                             onClick = {
-                                navigator.navigate(ExploreFolderScreenDestination(folderUid = item.uid))
+                                navigator.navigate(ExploreFolderScreenDestination())
                             },
                             onLongClick = {
                                 viewModel.selectedFolder = item

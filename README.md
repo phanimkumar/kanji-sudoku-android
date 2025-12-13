@@ -64,8 +64,6 @@ Built with [Jetpack Compose](https://developer.android.com/jetpack/compose) and 
 #### It comes with auto updater that will notify you when a new update is available and you can install it through the app (it checks GitHub Releases page), and requires the specified permissions to do so:
 - `<uses-permission android:name="android.permission.INTERNET"/>`
 - `<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>`
-- `<uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>`
-- `<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>`
 
 ([nonFOSS AndroidManifest.xml](https://github.com/kaajjo/LibreSudoku/blob/main/app/src/nonFOSS/AndroidManifest.xml))
 ### FOSS

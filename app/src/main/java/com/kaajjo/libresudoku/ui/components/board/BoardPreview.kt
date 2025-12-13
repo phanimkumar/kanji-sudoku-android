@@ -1,7 +1,10 @@
 package com.kaajjo.libresudoku.ui.components.board
 
+import com.kaajjo.libresudoku.KanjiMapper
+
 import android.graphics.Paint
 import android.graphics.Rect
+import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.aspectRatio
@@ -57,7 +60,9 @@ fun BoardPreview(
             .fillMaxWidth()
             .aspectRatio(1f)
             .padding(4.dp)
-    ) {
+    )
+
+    {
         val maxWidth = constraints.maxWidth.toFloat()
 
         val cellSize by remember(size) { mutableFloatStateOf(maxWidth / size.toFloat()) }
@@ -83,10 +88,12 @@ fun BoardPreview(
         val boardStrokeWidth = with(LocalDensity.current) { 1.1.dp.toPx() }
         val thinLineWidth = with(LocalDensity.current) { 0.6.dp.toPx() }
         val thickLineWidth = with(LocalDensity.current) { 1.1.dp.toPx() }
+
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
         ) {
+            // Outer rounded border
             drawRoundRect(
                 color = thickLineColor,
                 topLeft = Offset.Zero,
@@ -95,6 +102,7 @@ fun BoardPreview(
                 style = Stroke(width = boardStrokeWidth)
             )
 
+            // Vertical grid lines
             for (i in 1 until size) {
                 val isThickLine = i % horThick == 0
                 drawLine(
@@ -104,6 +112,8 @@ fun BoardPreview(
                     strokeWidth = if (isThickLine) thickLineWidth else thinLineWidth
                 )
             }
+
+            // Horizontal grid lines
             for (i in 1 until size) {
                 val isThickLine = i % vertThick == 0
                 drawLine(
@@ -119,26 +129,59 @@ fun BoardPreview(
 
             drawIntoCanvas { canvas ->
                 if (board != null) {
+                    // Preview from full Cell board (use Kanji + colors)
                     for (i in 0 until size) {
                         for (j in 0 until size) {
-                            if (board[i][j].value != 0) {
+                            val cell = board[i][j]
+                            if (cell.value != 0) {
+
+                                textPaint.color = when {
+                                    cell.error -> AndroidColor.parseColor("#B71C1C")   // error red
+                                    cell.locked -> AndroidColor.parseColor("#001933")  // locked deep navy
+                                    else -> AndroidColor.parseColor("#5A0000")         // user dark maroon
+                                }
+
+                                val v = cell.value
+                                val displayText = if (v in 1..9) {
+                                    KanjiMapper.toSymbol(v)
+                                } else {
+                                    v.toString(16).uppercase()
+                                }
+
+                                val textWidth = textPaint.measureText(displayText)
+
                                 canvas.nativeCanvas.drawText(
-                                    board[i][j].value.toString(),
-                                    board[i][j].col * cellSize + (cellSize - width) / 2f,
-                                    (board[i][j].row * cellSize + cellSize) - (cellSize - textBounds.height()) / 2f,
+                                    displayText,
+                                    cell.col * cellSize + (cellSize - textWidth) / 2f,
+                                    (cell.row * cellSize + cellSize) -
+                                            (cellSize - textBounds.height()) / 2f,
                                     textPaint
                                 )
                             }
                         }
                     }
                 } else if (boardString != null && boardString.length == size * size) {
-                    for (i in 0 until size) {
-                        for (j in 0 until size) {
-                            if (boardString[size * j + i] != '0') {
+                    // Preview from string board (last played games)
+                    textPaint.color = foregroundColor.toArgb()
+
+                    for (j in 0 until size) {
+                        for (i in 0 until size) {
+                            val ch = boardString[size * j + i]
+                            if (ch != '0') {
+
+                                val displayText = if (ch in '1'..'9') {
+                                    KanjiMapper.toSymbol(ch.digitToInt())   // 1..9 → Kanji
+                                } else {
+                                    ch.uppercase()                          // fallback
+                                }
+
+                                val textWidth = textPaint.measureText(displayText)
+
                                 canvas.nativeCanvas.drawText(
-                                    boardString[size * j + i].uppercase(),
-                                    i * cellSize + (cellSize - width) / 2f,
-                                    j * cellSize + cellSize - (cellSize - textBounds.height()) / 2f,
+                                    displayText,
+                                    i * cellSize + (cellSize - textWidth) / 2f,
+                                    j * cellSize + cellSize -
+                                            (cellSize - textBounds.height()) / 2f,
                                     textPaint
                                 )
                             }

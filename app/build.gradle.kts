@@ -13,19 +13,17 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.kaajjo.libresudoku"
+        applicationId = "com.swayamkrushi.kanjisudoku"
         minSdk = 26
         targetSdk = 35
-        versionCode = 22
-        versionName = "2.0.2"
+        versionCode = 27
+        versionName = "2.0.7"
 
         vectorDrawables {
             useSupportLibrary = true
         }
 
-        ksp {
-            arg("room.schemaLocation", "${projectDir}/schemas")
-        }
+
     }
 
     // F-Droid
@@ -124,4 +122,7 @@ dependencies {
 
     implementation(libs.okhttp)
     implementation(libs.composeMarkdown)
+}
+ksp {
+    arg("room.schemaLocation", "${projectDir}/schemas")
 }

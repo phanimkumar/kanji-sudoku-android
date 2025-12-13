@@ -15,6 +15,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import com.kaajjo.libresudoku.ui.game.GameScreenNavArgs
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
@@ -126,8 +127,7 @@ import kotlin.math.sqrt
 import kotlin.time.toKotlinDuration
 
 @Destination(
-    style = AnimatedNavigation::class,
-    navArgsDelegate = ExploreFolderScreenNavArgs::class
+    style = AnimatedNavigation::class
 )
 @OptIn(
     ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalLayoutApi::class
@@ -298,8 +298,15 @@ fun ExploreFolderScreen(
 
     LaunchedEffect(viewModel.readyToPlay, viewModel.gameUidToPlay) {
         if (viewModel.readyToPlay) {
-            viewModel.gameUidToPlay?.let {
-                navigator.navigate(GameScreenDestination(it, viewModel.isPlayedBefore))
+            viewModel.gameUidToPlay?.let { uid ->
+                navigator.navigate(
+                    GameScreenDestination(
+
+                            gameUid = uid,
+                            playedBefore = viewModel.isPlayedBefore
+
+                    )
+                )
                 viewModel.readyToPlay = false
             }
         }

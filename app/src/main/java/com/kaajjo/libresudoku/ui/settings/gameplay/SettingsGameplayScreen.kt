@@ -73,8 +73,8 @@ fun SettingsGameplayScreen(
                 PreferenceRowSwitch(
                     title = stringResource(R.string.pref_mistakes_limit),
                     subtitle = stringResource(R.string.pref_mistakes_limit_summ),
-                    checked = mistakesLimit,
-                    onClick = { viewModel.updateMistakesLimit(!mistakesLimit) },
+                    checked = true,
+                    onClick = { /*viewModel.updateMistakesLimit(!mistakesLimit) */},
                     painter = rememberVectorPainter(Icons.Outlined.Block)
                 )
             }
@@ -83,8 +83,8 @@ fun SettingsGameplayScreen(
                 PreferenceRowSwitch(
                     title = stringResource(R.string.pref_disable_hints),
                     subtitle = stringResource(R.string.pref_disable_hints_summ),
-                    checked = hintDisabled,
-                    onClick = { viewModel.updateHintDisabled(!hintDisabled) },
+                    checked = false,
+                    onClick = { /*viewModel.updateHintDisabled(!hintDisabled)*/ },
                     painter = rememberVectorPainter(Icons.Outlined.VisibilityOff)
                 )
             }

@@ -32,7 +32,8 @@ import com.kaajjo.libresudoku.domain.repository.SavedGameRepository
 import com.kaajjo.libresudoku.domain.usecase.board.GetBoardUseCase
 import com.kaajjo.libresudoku.domain.usecase.board.UpdateBoardUseCase
 import com.kaajjo.libresudoku.domain.usecase.record.GetAllRecordsUseCase
-import com.kaajjo.libresudoku.navArgs
+
+
 import com.kaajjo.libresudoku.ui.game.components.ToolBarItem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -63,21 +64,108 @@ class GameViewModel @Inject constructor(
     private val getBoardUseCase: GetBoardUseCase,
     themeSettingsManager: ThemeSettingsManager,
     private val savedStateHandle: SavedStateHandle,
-    private val getAllRecordsUseCase: GetAllRecordsUseCase
+    private val getAllRecordsUseCase: GetAllRecordsUseCase,
 ) : ViewModel() {
+
+    companion object {
+        const val HARD_MISTAKE_LIMIT = 3  // base lives
+        const val HARD_HINT_LIMIT = 3     // base hints
+    }
+
+    // ---- HARD LIMITS & AD EXTRAS ----
+
+    // Extra lives / hints earned via ads
+    private var extraLivesFromAds = 0
+    private var extraHintsFromAds = 0
+
+    // Effective limits (base + ad extras)
+    val effectiveMistakeLimit: Int
+        get() = HARD_MISTAKE_LIMIT + extraLivesFromAds
+
+    val effectiveHintLimit: Int
+        get() = HARD_HINT_LIMIT + extraHintsFromAds
+
+    // Dialog state for ads
+    private val _extraLifeDialog = MutableStateFlow(false)
+    val extraLifeDialog = _extraLifeDialog.asStateFlow()
+
+    private val _extraHintDialog = MutableStateFlow(false)
+    val extraHintDialog = _extraHintDialog.asStateFlow()
+
+    // ---- Ad dialog helpers ----
+
+    fun showExtraLifeDialog() {
+        _extraLifeDialog.value = true
+    }
+/*
+    fun onExtraLifeAdWatched() {
+        // user watched ad → give one more life
+        extraLivesFromAds += 1
+        _extraLifeDialog.value = false
+        // game continues; player can press Play to resume timer
+    }*/
+
+    /*fun onExtraLifeAdRejected() {
+        // user refused → treat as give up / game over
+        _extraLifeDialog.value = false
+        giveUp()
+    }
+*/
+    fun showExtraHintDialog() {
+        _extraHintDialog.value = true
+    }
+
+    // --- Show Solution Ad Gate ---
+    private val _solutionAdDialog = MutableStateFlow(false)
+    val solutionAdDialog = _solutionAdDialog.asStateFlow()
+
+    var solutionAdWatched by mutableStateOf(false)
+
+    fun showSolutionAdDialog() {
+        _solutionAdDialog.value = true
+    }
+
+    fun onSolutionAdWatched() {
+        // user watched ad → unlock solution for this game
+        solutionAdWatched = true
+        _solutionAdDialog.value = false
+        showSolution = true    // actually reveal solution
+    }
+
+    fun onSolutionAdRejected() {
+        _solutionAdDialog.value = false
+    }
+
+
+    fun onExtraHintAdWatched() {
+        // Player watched ad: give +1 extra hint
+        extraHintsFromAds += 1
+        _extraHintDialog.value = false
+        // Hint will be consumed on next Hint tap
+    }
+
+    fun onExtraHintAdRejected() {
+        _extraHintDialog.value = false
+    }
+
+    // ⬇️ your existing init { ... } and the rest of the class continues from here
     init {
-        val navArgs: GameScreenNavArgs = savedStateHandle.navArgs()
+        val gameUid: Long = savedStateHandle["gameUid"] ?: 0L
+        val continueSaved: Boolean = savedStateHandle["playedBefore"] ?: false
+
         val sudokuParser = SudokuParser()
-        val continueSaved = navArgs.playedBefore
+
 
         viewModelScope.launch(Dispatchers.IO) {
-            boardEntity = getBoardUseCase(navArgs.gameUid)
+            boardEntity = getBoardUseCase(gameUid)
             val savedGame = savedGameRepository.get(boardEntity.uid)
 
             withContext(Dispatchers.Main) {
                 gameType = boardEntity.type
                 gameDifficulty = boardEntity.difficulty
             }
+
+            // ... keep the rest of your init as it is ...
 
 
             withContext(Dispatchers.Default) {
@@ -124,13 +212,26 @@ class GameViewModel @Inject constructor(
             saveGame()
         }
     }
+    fun onExtraLifeAdWatched() {
+        // user watched ad → give one more life
+        extraLivesFromAds += 1
+        _extraLifeDialog.value = false
+        // timer resume will be handled from GameScreen after ad if you want
+    }
+
+    fun onExtraLifeAdRejected() {
+        // user refused → normal game over
+        giveUp()
+        _extraLifeDialog.value = false
+    }
 
     var giveUp by mutableStateOf(false)
 
     val fontSize = appSettingsManager.fontSize
     val keepScreenOn = appSettingsManager.keepScreenOn
 
-    var remainingUsesList = emptyList<Int>()
+    var remainingUsesList by mutableStateOf<List<Int>>(emptyList())
+
     val firstGame = appSettingsManager.firstGame
     private lateinit var boardEntity: SudokuBoard
     var size by mutableIntStateOf(9)
@@ -180,6 +281,7 @@ class GameViewModel @Inject constructor(
     var disableHints = appSettingsManager.hintsDisabled
 
     var endGame by mutableStateOf(false)
+
     var giveUpDialog by mutableStateOf(false)
 
     // mistakes
@@ -283,43 +385,45 @@ class GameViewModel @Inject constructor(
         if (currCell.row == row && currCell.col == col) {
             currCell = currCell.copy(value = new[row][col].value)
         }
+
+        // If cell cleared → no error, just return
         if (value == 0) {
             new[row][col].error = false
-            currCell.error = false
+            currCell = currCell.copy(error = false)
             return new
         }
-        // checking for mistakes
-        if (mistakesMethod.value == 1) {
-            // rule violations
-            new[row][col].error =
-                !sudokuUtils.isValidCellDynamic(new, new[row][col], boardEntity.type)
-            new.forEach { cells ->
-                cells.forEach { cell ->
-                    if (cell.value != 0 && cell.error) {
-                        cell.error = !sudokuUtils.isValidCellDynamic(new, cell, boardEntity.type)
-                    }
-                }
+
+        // ─── STRICT MISTAKE CHECK: ONLY AGAINST SOLUTION ───
+        when (mistakesMethod.value) {
+            0 -> {
+                // mistake checking off (no red, no error)
+                new[row][col].error = false
             }
-        } else if (mistakesMethod.value == 2) {
-            // check with final solution
-            new = isValidCell(new, new[row][col])
+            else -> {
+                // treat any non-matching symbol as mistake
+                new = isValidCell(new, new[row][col])
+            }
         }
 
-        currCell.error = currCell.value == 0
+        // keep currCell error in sync with board
+        currCell = currCell.copy(error = new[row][col].error)
+
         // updating mistakes limit
         if (new[row][col].error) {
             mistakesMade++
-            if (mistakesLimit.value) {
+
                 mistakesCount++
-                if (mistakesCount >= PreferencesConstants.MISTAKES_LIMIT) {
+                if (mistakesCount >= effectiveMistakeLimit && !endGame) {
                     pauseTimer()
-                    giveUp()
-                    endGame = true
+                    _extraLifeDialog.value = true   // extra life dialog (ad)
                 }
-            }
+
         }
 
         gameCompleted = isCompleted(new)
+        if (gameCompleted) {
+            onGameComplete()
+        }
 
         if (autoEraseNotes.value) {
             notes = autoEraseNotes(new, currCell)
@@ -328,15 +432,19 @@ class GameViewModel @Inject constructor(
         return new
     }
 
+
     private fun countRemainingUses(board: List<List<Cell>>): MutableList<Int> {
         val uses = mutableListOf<Int>()
-        for (i in 0..size) {
+        for (i in 0 until size) {
             uses.add(size - sudokuUtils.countNumberInBoard(board, i + 1))
         }
         return uses
     }
 
     fun processInput(cell: Cell, remainingUse: Boolean, longTap: Boolean = false): Boolean {
+        // 🔒 Don't allow any more moves once we've hit the effective mistake limit
+        if (mistakesCount >= effectiveMistakeLimit) return false
+
         if (gamePlaying) {
             currCell =
                 if (currCell.row == cell.row && currCell.col == cell.col && digitFirstNumber == 0) {
@@ -377,6 +485,13 @@ class GameViewModel @Inject constructor(
     }
 
     fun processInputKeyboard(number: Int, longTap: Boolean = false) {
+        // 🔒 Stop keyboard input once limit is reached
+        if (mistakesCount >= effectiveMistakeLimit) return
+// 🚫 Prevent deleting symbol when user taps the same number already placed
+        val current = currCell.value
+        if (!longTap && inputMethod.value == 0 && current == number) {
+            return // <-- fixed behaviour
+        }
         if (gamePlaying) {
             if (!longTap) {
                 if (inputMethod.value == 0 && !currCell.locked && currCell.col >= 0 && currCell.row >= 0) {
@@ -401,14 +516,23 @@ class GameViewModel @Inject constructor(
 
 
     fun processNumberInput(number: Int) {
+        val existing = gameBoard[currCell.row][currCell.col].value
+        if (existing == number) {
+            return
+        }
         if (currCell.row >= 0 && currCell.col >= 0 && gamePlaying && !currCell.locked) {
             if (!notesToggled) {
                 // Clear all note to set a number
                 notes = clearNotesAtCell(notes, currCell.row, currCell.col)
 
-                gameBoard = setValueCell(
-                    if (gameBoard[currCell.row][currCell.col].value == number) 0 else number
-                )
+                val currentValue = gameBoard[currCell.row][currCell.col].value
+
+                // NEW: if same number is tapped again, do nothing
+                if (currentValue == number) {
+                    return
+                }
+
+                gameBoard = setValueCell(number)
             } else {
                 gameBoard = setValueCell(0)
                 setNote(number)
@@ -515,6 +639,12 @@ class GameViewModel @Inject constructor(
     }
 
     private fun useHint() {
+        // block if hint limit reached
+        if (hintsUsed >= effectiveHintLimit) {
+            _extraHintDialog.value = true   // ask to watch ad
+            return
+        }
+
         if (solvedBoard.isEmpty()) solveBoard()
         if (currCell.row >= 0 && currCell.col >= 0 && !currCell.locked) {
             notes = clearNotesAtCell(notes, currCell.row, currCell.col)
@@ -548,7 +678,7 @@ class GameViewModel @Inject constructor(
 
         remainingUsesList = countRemainingUses(gameBoard)
 
-        hintsUsed = 0
+
         mistakesMade = 0
         notesTaken = 0
     }
@@ -695,6 +825,7 @@ class GameViewModel @Inject constructor(
 
         pauseTimer()
         currCell = Cell(-1, -1, 0)
+
         viewModelScope.launch(Dispatchers.IO) {
             saveGame()
             recordRepository.insert(
@@ -707,8 +838,11 @@ class GameViewModel @Inject constructor(
                 )
             )
         }
+
         endGame = true
+        gameCompleted = true   // ⭐ THIS IS THE MISSING PART
     }
+
 
     fun getFontSize(type: GameType = gameType, factor: Int): TextUnit {
         return sudokuUtils.getFontSize(type, factor)
@@ -776,23 +910,18 @@ class GameViewModel @Inject constructor(
                             // mistake checking is off
                             new[i][j].error = false
                         }
-
-                        1 -> {
-                            // rules violations
-                            new[i][j].error =
-                                !sudokuUtils.isValidCellDynamic(new, new[i][j], boardEntity.type)
-                        }
-
-                        2 -> {
-                            // check with final solution
+                        else -> {
+                            // ALWAYS check against final solution
                             new = isValidCell(new, new[i][j])
                         }
                     }
                 }
             }
         }
+
         gameBoard = new
     }
+
 
     fun getAdvancedHint() {
         viewModelScope.launch(Dispatchers.Default) {
@@ -829,4 +958,5 @@ class GameViewModel @Inject constructor(
             }
         }
     }
+
 }
