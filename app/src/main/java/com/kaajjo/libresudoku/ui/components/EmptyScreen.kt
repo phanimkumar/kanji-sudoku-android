@@ -24,16 +24,7 @@ fun EmptyScreen(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit = { }
 ) {
-    val emptyFace by remember {
-        mutableStateOf(
-            listOf(
-                "Σ(ಠ_ಠ)",
-                "(･Д･。",
-                "(っ˘̩╭╮˘̩)っ",
-                "ಥ_ಥ"
-            ).random()
-        )
-    }
+
 
     Column(
         modifier = modifier
@@ -41,10 +32,7 @@ fun EmptyScreen(
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            text = emptyFace,
-            style = MaterialTheme.typography.displayMedium
-        )
+
         Text(
             modifier = Modifier.padding(vertical = 8.dp),
             text = text,
