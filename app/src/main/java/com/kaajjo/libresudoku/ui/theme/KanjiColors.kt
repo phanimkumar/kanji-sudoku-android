@@ -5,7 +5,7 @@ import androidx.compose.ui.graphics.Color
 
 // Backgrounds
 val KanjiScreenBackground = Color(0xFFE8F1F5)   // Asagi – light blue
-val KanjiBoardCellBackground = Color(0xFFFDEDED) // Sakura – light cherry
+val KanjiBoardCellBackground = Color(0xFFF1F5F9) // Sakura – light cherry
 
 // Lines / borders
 val KanjiOuterBorder = Color(0xFF001F54)   // Deep navy

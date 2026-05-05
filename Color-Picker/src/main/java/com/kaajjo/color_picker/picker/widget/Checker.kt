@@ -38,11 +38,11 @@ private fun CheckeredBox(
  * default.
  * @param shape shape of the checker.
  */
-fun Modifier.drawChecker(shape: Shape, size: DpSize = DpSize.Unspecified) = this
-    .clip(shape)
-    .then(
-        drawWithCache {
-            this.onDrawBehind {
+fun Modifier.drawChecker(shape: Shape, size: DpSize = DpSize.Unspecified) =
+    this
+        .clip(shape)
+        .drawWithCache {
+            onDrawBehind {
                 val width = this.size.width
                 val height = this.size.height
 
@@ -69,4 +69,3 @@ fun Modifier.drawChecker(shape: Shape, size: DpSize = DpSize.Unspecified) = this
                 }
             }
         }
-    )

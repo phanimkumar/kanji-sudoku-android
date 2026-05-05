@@ -64,7 +64,7 @@ fun KeyboardItem(
     Box(
         modifier = modifier
             .clip(CircleShape)
-            .background(Color(0xFFFDE8EC))
+            .background(Color(0xFFF1F5F9))
             .combinedClickable(
                 interactionSource = mutableInteractionSource,
                 onClick = {

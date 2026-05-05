@@ -1,8 +1,8 @@
 pluginManagement {
     repositories {
-        gradlePluginPortal()
-        google()
+        google()              // ✅ MUST BE FIRST
         mavenCentral()
+        gradlePluginPortal()
     }
 }
 dependencyResolutionManagement {

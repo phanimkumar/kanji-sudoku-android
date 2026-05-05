@@ -1,17 +1,20 @@
 package com.kaajjo.libresudoku.ui.game
 
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.ui.unit.sp
-import com.kaajjo.libresudoku.destinations.SettingsCategoriesScreenDestination
 
-import androidx.compose.foundation.background
+import android.util.Log
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import com.kaajjo.libresudoku.ui.AdManager
+import android.app.Activity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import com.kaajjo.libresudoku.ui.BannerAd
 import android.os.Build
+import kotlinx.coroutines.delay
 import android.os.Build.VERSION.SDK_INT
 import android.view.HapticFeedbackConstants
 import android.view.View
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedVisibility as NormalAnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -19,13 +22,18 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.rounded.AutoAwesome
@@ -52,9 +60,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -63,7 +73,9 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -78,6 +90,7 @@ import com.kaajjo.libresudoku.core.PreferencesConstants
 import com.kaajjo.libresudoku.core.qqwing.GameType
 import com.kaajjo.libresudoku.core.qqwing.advanced_hint.AdvancedHintData
 import com.kaajjo.libresudoku.core.utils.SudokuParser
+import com.kaajjo.libresudoku.destinations.SettingsCategoriesScreenDestination
 import com.kaajjo.libresudoku.ui.components.AdvancedHintContainer
 import com.kaajjo.libresudoku.ui.components.AnimatedNavigation
 import com.kaajjo.libresudoku.ui.components.board.Board
@@ -96,23 +109,60 @@ import com.ramcosta.composedestinations.navigation.DestinationsNavigator
 // We show "x / 3" in the top bar; 3 is the hard-coded base limit
 private const val UI_MISTAKE_LIMIT = 3
 
-@Destination(
-    style = AnimatedNavigation::class
-    // navArgsDelegate removed here to keep this file simpler.
-)
+@Composable
+private fun GlassPanel(
+    modifier: Modifier = Modifier,
+    corner: Dp = 22.dp,
+    content: @Composable () -> Unit
+) {
+    val shape = RoundedCornerShape(corner)
+
+    Box(
+        modifier = modifier
+            .clip(shape)
+            // ✅ Soft premium glass (no heavy teal)
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.10f),
+                        Color.White.copy(alpha = 0.04f)
+                    )
+                )
+            )
+            // ✅ Subtle border (no strong glow)
+            .border(
+                width = 1.dp,
+                color = Color.White.copy(alpha = 0.25f),
+                shape = shape
+            )
+            // ✅ Light shadow (premium depth)
+            .shadow(
+                elevation = 6.dp,
+                shape = shape,
+                clip = false
+            )
+            .padding(10.dp)
+    ) {
+        content()
+    }
+}
+
+@Destination(style = AnimatedNavigation::class)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GameScreen(
-
     gameUid: Long,
     playedBefore: Boolean,
     viewModel: GameViewModel = hiltViewModel(),
     navigator: DestinationsNavigator
 ) {
     val localView = LocalView.current
+    val haptic = LocalHapticFeedback.current
+    val sectionCompleteEvent by viewModel.sectionCompleteEvent.collectAsStateWithLifecycle()
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
-    // Kanji info dialog visibility
+    val activity = context as Activity
+
     var showKanjiInfo by remember { mutableStateOf(false) }
 
     val firstGame by viewModel.firstGame.collectAsStateWithLifecycle(initialValue = false)
@@ -157,9 +207,9 @@ fun GameScreen(
     val advancedHintMode by viewModel.advancedHintMode.collectAsStateWithLifecycle(false)
     val advancedHintData by viewModel.advancedHintData.collectAsStateWithLifecycle(null)
 
-    if (keepScreenOn) {
-        KeepScreenOn()
-    }
+    var renderNotes by remember { mutableStateOf(true) }
+
+    if (keepScreenOn) KeepScreenOn()
 
     if (firstGame) {
         viewModel.pauseTimer()
@@ -187,8 +237,12 @@ fun GameScreen(
         label = "Game board scale"
     )
 
+
+
+
+
     Scaffold(
-        containerColor = Color(0xFFFDE8EC),
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = { },
@@ -202,24 +256,20 @@ fun GameScreen(
                 },
                 actions = {
                     // After game: show "show solution / show mine" button
-                    AnimatedVisibility(
+                    NormalAnimatedVisibility(
                         visible = viewModel.endGame &&
                                 (viewModel.mistakesCount >= viewModel.effectiveMistakeLimit || viewModel.giveUp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             FilledTonalButton(
                                 onClick = {
                                     if (!viewModel.showSolution) {
-                                        // First time (or after hiding) → need ad once
                                         if (!viewModel.solutionAdWatched) {
                                             viewModel.showSolutionAdDialog()
                                         } else {
                                             viewModel.showSolution = true
                                         }
                                     } else {
-                                        // Already showing solution → toggle back to user's grid
                                         viewModel.showSolution = false
                                     }
                                 }
@@ -235,12 +285,11 @@ fun GameScreen(
                                     Text(labelText)
                                 }
                             }
-
                         }
                     }
 
                     // Play / Pause
-                    AnimatedVisibility(visible = !viewModel.endGame) {
+                    NormalAnimatedVisibility(visible = !viewModel.endGame) {
                         val rotationAngle by animateFloatAsState(
                             targetValue = if (viewModel.gamePlaying) 0f else 360f,
                             label = "Play/Pause game icon rotation"
@@ -253,11 +302,8 @@ fun GameScreen(
                             Icon(
                                 modifier = Modifier.rotate(rotationAngle),
                                 painter = painterResource(
-                                    if (viewModel.gamePlaying) {
-                                        R.drawable.ic_round_pause_24
-                                    } else {
-                                        R.drawable.ic_round_play_24
-                                    }
+                                    if (viewModel.gamePlaying) R.drawable.ic_round_pause_24
+                                    else R.drawable.ic_round_play_24
                                 ),
                                 contentDescription = null
                             )
@@ -265,7 +311,7 @@ fun GameScreen(
                     }
 
                     // Restart
-                    AnimatedVisibility(visible = !viewModel.endGame) {
+                    NormalAnimatedVisibility(visible = !viewModel.endGame) {
                         IconButton(onClick = { viewModel.restartDialog = true }) {
                             Icon(
                                 modifier = Modifier.rotate(restartButtonAnimation),
@@ -276,7 +322,7 @@ fun GameScreen(
                     }
 
                     // Menu
-                    AnimatedVisibility(visible = !viewModel.endGame) {
+                    NormalAnimatedVisibility(visible = !viewModel.endGame) {
                         Box {
                             IconButton(onClick = { viewModel.showMenu = !viewModel.showMenu }) {
                                 Icon(
@@ -292,14 +338,13 @@ fun GameScreen(
                                     viewModel.giveUpDialog = true
                                 },
                                 onSettingsClick = {
-                                    // Settings navigation from game temporarily disabled
                                     viewModel.showMenu = false
                                     navigator.navigate(
                                         SettingsCategoriesScreenDestination(
                                             launchedFromGame = true
                                         )
                                     )
-                                                  },
+                                },
                                 onExportClick = {
                                     val stringBoard = SudokuParser().boardToString(
                                         viewModel.gameBoard,
@@ -322,572 +367,546 @@ fun GameScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFFFDE8EC),
-                    titleContentColor = Color.Black,
-                    navigationIconContentColor = Color.Black,
-                    actionIconContentColor = Color.Black
+                    containerColor = Color.Transparent,
+                    titleContentColor = Color(0xFF0F172A),
+                    navigationIconContentColor = Color(0xFF0F172A),
+                    actionIconContentColor = Color(0xFF0F172A)
                 )
             )
         }
     ) { scaffoldPaddings ->
-        Column(
+
+        // ✅ TURQUOISE background (stronger glow so it won't read as blue)
+        Box(
             modifier = Modifier
-                .padding(scaffoldPaddings)
-                .padding(KanjiScreenPadding),
-            verticalArrangement = Arrangement.SpaceEvenly
-        ) {
-            // Top info row
-            AnimatedVisibility(visible = !viewModel.endGame) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 24.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    TopBoardSection(stringResource(viewModel.gameDifficulty.resName))
-
-
-                        TopBoardSection(
-                            stringResource(
-                                R.string.mistakes_number_out_of,
-                                viewModel.mistakesCount,
-                                UI_MISTAKE_LIMIT
-                            )
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFFF8FAFC),
+                            Color(0xFFE2E8F0)
                         )
-
-
-                    val timerEnabled by viewModel.timerEnabled.collectAsStateWithLifecycle(
-                        initialValue = PreferencesConstants.DEFAULT_SHOW_TIMER
                     )
-                    AnimatedVisibility(visible = timerEnabled || viewModel.endGame) {
-                        TopBoardSection(viewModel.timeText)
-                    }
-                }
-            }
-
-            var renderNotes by remember { mutableStateOf(true) }
-
-            // Board
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 12.dp)
-            ) {
-                Column(
-                    modifier = Modifier.align(Alignment.Center)
-                ) {
-                    AnimatedVisibility(
-                        visible = !viewModel.gamePlaying && !viewModel.endGame,
-                        enter = expandVertically(clip = false) + fadeIn(),
-                        exit = shrinkVertically(clip = false) + fadeOut()
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.PlayCircle,
-                            contentDescription = null,
-                            modifier = Modifier
-                                .size(48.dp)
-                                .shadow(12.dp)
-                        )
-                    }
-                }
-
-                Board(
-                    modifier = Modifier
-                        .blur(boardBlur)
-                        .scale(boardScale, boardScale),
-                    board = if (!viewModel.showSolution) viewModel.gameBoard
-                    else viewModel.solvedBoard,
-                    size = viewModel.size,
-                    mainTextSize = fontSizeValue,
-                    autoFontSize = fontSizeFactor == 0,
-                    notes = viewModel.notes,
-                    selectedCell = viewModel.currCell,
-                    onClick = { cell ->
-                        viewModel.processInput(
-                            cell = cell,
-                            remainingUse = remainingUse,
-                        )
-                        if (!viewModel.gamePlaying) {
-                            localView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                            viewModel.startTimer()
-                        }
-                    },
-                    onLongClick = { cell ->
-                        if (viewModel.processInput(cell, remainingUse, longTap = true)) {
-                            localView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                        }
-                    },
-                    identicalNumbersHighlight = highlightIdentical,
-                    errorsHighlight = errorHighlight != 0,
-                    positionLines = positionLines,
-                    notesToHighlight = if (viewModel.digitFirstNumber > 0) {
-                        viewModel.notes.filter { it.value == viewModel.digitFirstNumber }
-                    } else {
-                        emptyList()
-                    },
-                    enabled = viewModel.gamePlaying && !viewModel.endGame,
-                    questions = !(viewModel.gamePlaying || viewModel.endGame) &&
-                            SDK_INT < Build.VERSION_CODES.R,
-                    renderNotes = renderNotes && !viewModel.showSolution,
-                    zoomable = viewModel.gameType == GameType.Default12x12 ||
-                            viewModel.gameType == GameType.Killer12x12,
-                    crossHighlight = crossHighlight,
-                    cages = viewModel.cages,
-                    cellsToHighlight = if (advancedHintMode && advancedHintData != null)
-                        advancedHintData!!.helpCells + advancedHintData!!.targetCell
-                    else null
                 )
-            }
-            // Kanji meanings button
-            Row(
+                .padding(scaffoldPaddings)
+        ) {
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 4.dp),
-                horizontalArrangement = Arrangement.End
+                    .fillMaxSize()
+                    .padding(KanjiScreenPadding),
+                verticalArrangement = Arrangement.Top
             ) {
-                TextButton(onClick = { showKanjiInfo = true }) {
-                    Text("Kanji symbols & meanings")
-                }
-            }
 
-            // Below-board content:
-            //  - If game still running → either Advanced Hint UI or Keyboard + Kanji bar
-            if (!viewModel.endGame) {
-                AnimatedContent(
-                    targetState = advancedHintMode,
-                    label = "AdvancedHint / Keyboard switch"
-                ) { isAdvanced ->
-                    if (isAdvanced) {
-                        // ADVANCED HINT MODE
-                        advancedHintData?.let { hintData ->
-                            AdvancedHintContainer(
-                                advancedHintData = hintData,
-                                onApplyClick = { viewModel.applyAdvancedHint() },
-                                onBackClick = { viewModel.cancelAdvancedHint() },
-                                onSettingsClick = { /* advanced hint settings */ }
-                            )
-                        } ?: run {
-                            AdvancedHintContainer(
-                                advancedHintData = AdvancedHintData(
-                                    titleRes = R.string.advanced_hint_no_hint_title,
-                                    textResWithArg = Pair(
-                                        R.string.advanced_hint_no_hint,
-                                        emptyList()
-                                    ),
-                                    targetCell = Cell(-1, -1, 0),
-                                    helpCells = emptyList()
-                                ),
-                                onApplyClick = null,
-                                onBackClick = { viewModel.cancelAdvancedHint() },
-                                onSettingsClick = { /* advanced hint settings */ }
-                            )
-                        }
-                    } else {
-                        // NORMAL MODE: Kanji bar + toolbar
-                        val kanjiSymbols = remember {
-                            (1..9).map { KanjiMapper.toSymbol(it) }
-                        }
-                        val remainingUsesList = viewModel.remainingUsesList
-
-                        Column(
-                            verticalArrangement = if (funKeyboardOverNum)
-                                ReverseArrangement
-                            else
-                                Arrangement.Top
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) { // Top info row
+                    NormalAnimatedVisibility(visible = !viewModel.endGame) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 24.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            // Kanji bar under the board
-                            KanjiInputBar(
-                                symbols = kanjiSymbols,
-                                selected = if (viewModel.digitFirstNumber > 0)
-                                    KanjiMapper.toSymbol(viewModel.digitFirstNumber)
-                                else null,
-                                remainingUses = if (remainingUse) remainingUsesList else null,
-                                onSelect = { symbol ->
-                                    val index = kanjiSymbols.indexOf(symbol)
-                                    if (index >= 0) {
-                                        if (remainingUse &&
-                                            index < remainingUsesList.size &&
-                                            remainingUsesList[index] <= 0
-                                        ) {
-                                            // Symbol exhausted; ignore tap
-                                            return@KanjiInputBar
-                                        }
+                            TopBoardSection(stringResource(viewModel.gameDifficulty.resName))
 
-                                        val num = index + 1 // 1..9
-                                        viewModel.processInputKeyboard(number = num)
-                                    }
-                                }
+                            TopBoardSection(
+                                stringResource(
+                                    R.string.mistakes_number_out_of,
+                                    viewModel.mistakesCount,
+                                    UI_MISTAKE_LIMIT
+                                )
                             )
 
-                            // Toolbar row
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.padding(vertical = 8.dp)
-                            ) {
-                                // Undo / Redo
-                                Box(
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    UndoRedoMenu(
-                                        expanded = viewModel.showUndoRedoMenu,
-                                        onDismiss = { viewModel.showUndoRedoMenu = false },
-                                        onRedoClick = {
-                                            viewModel.toolbarClick(ToolBarItem.Redo)
-                                        }
+                            val timerEnabled by viewModel.timerEnabled.collectAsStateWithLifecycle(
+                                initialValue = PreferencesConstants.DEFAULT_SHOW_TIMER
+                            )
+                            NormalAnimatedVisibility(visible = timerEnabled || viewModel.endGame) {
+                                TopBoardSection(viewModel.timeText)
+                            }
+                        }
+                    }
+
+                    // ✅ Board area locked to square so it never covers keyboard
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp)
+                            .aspectRatio(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        // Play icon overlay
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = !viewModel.gamePlaying && !viewModel.endGame,
+                            enter = expandVertically(clip = false) + fadeIn(),
+                            exit = shrinkVertically(clip = false) + fadeOut()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.PlayCircle,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .shadow(12.dp),
+                                tint = Color.White
+                            )
+                        }
+
+                        // Glass wrapper + board + TURQUOISE tint overlay on top (kills pale/pink board)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .blur(boardBlur)
+                                .scale(boardScale)
+                        ) {
+                            Board(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .shadow(6.dp, RoundedCornerShape(12.dp)),
+                                board = if (!viewModel.showSolution) viewModel.gameBoard else viewModel.solvedBoard,
+                                size = viewModel.size,
+                                mainTextSize = fontSizeValue,
+                                autoFontSize = fontSizeFactor == 0,
+                                notes = viewModel.notes,
+                                selectedCell = viewModel.currCell,
+                                selectedNumberForHighlight = viewModel.digitFirstNumber,
+                                onClick = { cell ->
+                                    viewModel.processInput(cell = cell, remainingUse = remainingUse)
+                                },
+                                onLongClick = { cell ->
+                                    if (viewModel.processInput(
+                                            cell,
+                                            remainingUse,
+                                            longTap = true
+                                        )
+                                    ) {
+                                        localView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                                    }
+                                },
+                                identicalNumbersHighlight = highlightIdentical,
+                                errorsHighlight = errorHighlight != 0,
+                                positionLines = positionLines,
+                                notesToHighlight = if (viewModel.digitFirstNumber > 0) {
+                                    viewModel.notes.filter { it.value == viewModel.digitFirstNumber }
+                                } else emptyList(),
+                                enabled = viewModel.gamePlaying && !viewModel.endGame,
+                                questions = !(viewModel.gamePlaying || viewModel.endGame) &&
+                                        SDK_INT < Build.VERSION_CODES.R,
+                                renderNotes = renderNotes && !viewModel.showSolution,
+                                zoomable = viewModel.gameType == GameType.Default12x12 ||
+                                        viewModel.gameType == GameType.Killer12x12,
+                                crossHighlight = crossHighlight,
+                                cages = viewModel.cages,
+                                cellsToHighlight = if (advancedHintMode && advancedHintData != null)
+                                    advancedHintData!!.helpCells + advancedHintData!!.targetCell
+                                else null
+                            )
+                        }
+                    }
+
+                    // Kanji meanings button (OUTSIDE the board box)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 4.dp),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = { showKanjiInfo = true }) {
+                            Text("Kanji symbols & meanings", color = Color(0xFF334155))
+                        }
+                    }
+
+                    // Below-board content
+                    if (!viewModel.endGame) {
+                        AnimatedContent(
+                            targetState = advancedHintMode,
+                            label = "AdvancedHint / Keyboard switch"
+                        ) { isAdvanced ->
+                            if (isAdvanced) {
+                                advancedHintData?.let { hintData ->
+                                    AdvancedHintContainer(
+                                        advancedHintData = hintData,
+                                        onApplyClick = { viewModel.applyAdvancedHint() },
+                                        onBackClick = { viewModel.cancelAdvancedHint() },
+                                        onSettingsClick = { /* advanced hint settings */ }
                                     )
-                                    ToolbarItem(
-                                        painter = painterResource(
-                                            R.drawable.ic_round_undo_24
+                                } ?: run {
+                                    AdvancedHintContainer(
+                                        advancedHintData = AdvancedHintData(
+                                            titleRes = R.string.advanced_hint_no_hint_title,
+                                            textResWithArg = Pair(
+                                                R.string.advanced_hint_no_hint,
+                                                emptyList()
+                                            ),
+                                            targetCell = Cell(-1, -1, 0),
+                                            helpCells = emptyList()
                                         ),
-                                        onClick = {
-                                            viewModel.toolbarClick(ToolBarItem.Undo)
-                                        },
-                                        onLongClick = {
-                                            viewModel.showUndoRedoMenu = true
-                                        }
+                                        onApplyClick = null,
+                                        onBackClick = { viewModel.cancelAdvancedHint() },
+                                        onSettingsClick = { /* advanced hint settings */ }
                                     )
                                 }
+                            } else {
+                                val kanjiSymbols =
+                                    remember { (1..9).map { KanjiMapper.toSymbol(it) } }
+                                val remainingUsesList = viewModel.remainingUsesList
 
-                                // Hint button (hard-limited in ViewModel)
-                                val hintsDisabled by viewModel.disableHints
-                                    .collectAsStateWithLifecycle(
-                                        initialValue = PreferencesConstants
-                                            .DEFAULT_HINTS_DISABLED
-                                    )
-                                if (!hintsDisabled) {
-                                    ToolbarItem(
-                                        modifier = Modifier.weight(1f),
-                                        painter = painterResource(
-                                            R.drawable.ic_lightbulb_stars_24
-                                        ),
-                                        onClick = {
-                                            // ViewModel enforces HARD_HINT_LIMIT and shows ad dialog
-                                            viewModel.toolbarClick(ToolBarItem.Hint)
-                                        }
-                                    )
-                                }
-
-                                // Notes
-                                Box(
-                                    modifier = Modifier.weight(1f)
+                                Column(
+                                    verticalArrangement = if (funKeyboardOverNum) ReverseArrangement
+                                    else Arrangement.Top
                                 ) {
-                                    NotesMenu(
-                                        expanded = viewModel.showNotesMenu,
-                                        onDismiss = {
-                                            viewModel.showNotesMenu = false
-                                        },
-                                        onComputeNotesClick = {
-                                            viewModel.computeNotes()
-                                        },
-                                        onClearNotesClick = {
-                                            viewModel.clearNotes()
-                                        },
-                                        renderNotes = renderNotes,
-                                        onRenderNotesClick = {
-                                            renderNotes = !renderNotes
-                                        }
-                                    )
-                                    ToolbarItem(
-                                        painter = painterResource(
-                                            R.drawable.ic_round_edit_24
-                                        ),
-                                        toggled = viewModel.notesToggled,
-                                        onClick = {
-                                            viewModel.toolbarClick(ToolBarItem.Note)
-                                        },
-                                        onLongClick = {
-                                            if (viewModel.gamePlaying) {
-                                                localView.performHapticFeedback(
-                                                    HapticFeedbackConstants.VIRTUAL_KEY
-                                                )
-                                                viewModel.showNotesMenu = true
+                                    KanjiInputBar(
+                                        symbols = kanjiSymbols,
+                                        selected = if (viewModel.digitFirstNumber > 0)
+                                            KanjiMapper.toSymbol(viewModel.digitFirstNumber)
+                                        else null,
+                                        remainingUses = if (remainingUse) remainingUsesList else null,
+                                        onSelect = { symbol ->
+                                            val index = kanjiSymbols.indexOf(symbol)
+                                            if (index >= 0) {
+                                                if (remainingUse &&
+                                                    index < remainingUsesList.size &&
+                                                    remainingUsesList[index] <= 0
+                                                ) return@KanjiInputBar
+
+                                                val num = index + 1
+                                                viewModel.processInputKeyboard(number = num)
                                             }
                                         }
                                     )
-                                }
 
-                                // Eraser
-                                ToolbarItem(
-                                    modifier = Modifier.weight(1f),
-                                    painter = painterResource(
-                                        R.drawable.ic_eraser_24
-                                    ),
-                                    toggled = viewModel.eraseButtonToggled,
-                                    onClick = {
-                                        viewModel.toolbarClick(ToolBarItem.Remove)
-                                    },
-                                    onLongClick = {
-                                        if (viewModel.gamePlaying) {
-                                            localView.performHapticFeedback(
-                                                HapticFeedbackConstants.VIRTUAL_KEY
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.padding(vertical = 16.dp)
+                                    ) {
+                                        // Undo / Redo
+                                        Box(modifier = Modifier.weight(1f)) {
+                                            UndoRedoMenu(
+                                                expanded = viewModel.showUndoRedoMenu,
+                                                onDismiss = { viewModel.showUndoRedoMenu = false },
+                                                onRedoClick = {
+                                                    viewModel.toolbarClick(ToolBarItem.Redo)
+                                                }
                                             )
-                                            viewModel.toggleEraseButton()
+                                            ToolbarItem(
+                                                painter = painterResource(R.drawable.ic_round_undo_24),
+                                                onClick = { viewModel.toolbarClick(ToolBarItem.Undo) },
+                                                onLongClick = { viewModel.showUndoRedoMenu = true }
+                                            )
+                                        }
+
+                                        // Hint
+                                        val hintsDisabled by viewModel.disableHints.collectAsStateWithLifecycle(
+                                            initialValue = PreferencesConstants.DEFAULT_HINTS_DISABLED
+                                        )
+                                        if (!hintsDisabled) {
+                                            ToolbarItem(
+                                                modifier = Modifier.weight(1f),
+                                                painter = painterResource(R.drawable.ic_lightbulb_stars_24),
+                                                onClick = { viewModel.toolbarClick(ToolBarItem.Hint) }
+                                            )
+                                        }
+
+                                        // Notes
+                                        Box(modifier = Modifier.weight(1f)) {
+                                            NotesMenu(
+                                                expanded = viewModel.showNotesMenu,
+                                                onDismiss = { viewModel.showNotesMenu = false },
+                                                onComputeNotesClick = { viewModel.computeNotes() },
+                                                onClearNotesClick = { viewModel.clearNotes() },
+                                                renderNotes = renderNotes,
+                                                onRenderNotesClick = { renderNotes = !renderNotes }
+                                            )
+                                            ToolbarItem(
+                                                painter = painterResource(R.drawable.ic_round_edit_24),
+                                                toggled = viewModel.notesToggled,
+                                                onClick = { viewModel.toolbarClick(ToolBarItem.Note) },
+                                                onLongClick = {
+                                                    if (viewModel.gamePlaying) {
+                                                        localView.performHapticFeedback(
+                                                            HapticFeedbackConstants.VIRTUAL_KEY
+                                                        )
+                                                        viewModel.showNotesMenu = true
+                                                    }
+                                                }
+                                            )
+                                        }
+
+                                        // Eraser
+                                        ToolbarItem(
+                                            modifier = Modifier.weight(1f),
+                                            painter = painterResource(R.drawable.ic_eraser_24),
+                                            toggled = viewModel.eraseButtonToggled,
+                                            onClick = { viewModel.toolbarClick(ToolBarItem.Remove) },
+                                            onLongClick = {
+                                                if (viewModel.gamePlaying) {
+                                                    localView.performHapticFeedback(
+                                                        HapticFeedbackConstants.VIRTUAL_KEY
+                                                    )
+                                                    viewModel.toggleEraseButton()
+                                                }
+                                            }
+                                        )
+
+                                        // Advanced hint
+                                        if (advancedHintEnabled) {
+                                            ToolbarItem(
+                                                modifier = Modifier.weight(1f),
+                                                painter = rememberVectorPainter(Icons.Rounded.AutoAwesome),
+                                                onClick = {
+                                                    if (viewModel.gamePlaying) viewModel.getAdvancedHint()
+                                                }
+                                            )
                                         }
                                     }
-                                )
-
-                                // Advanced hint button
-                                if (advancedHintEnabled) {
-                                    ToolbarItem(
-                                        modifier = Modifier.weight(1f),
-                                        painter = rememberVectorPainter(
-                                            Icons.Rounded.AutoAwesome
-                                        ),
-                                        onClick = {
-                                            if (viewModel.gamePlaying) {
-                                                viewModel.getAdvancedHint()
-                                            }
-                                        }
-                                    )
                                 }
                             }
                         }
                     }
                 }
-
+                BannerAd()
             }
-
         }
 
-    }
+        // ───────────────────── dialogs ─────────────────────
 
-    // ───────────────────── dialogs ─────────────────────
-
-    if (viewModel.restartDialog) {
-        viewModel.pauseTimer()
-        AlertDialog(
-            onDismissRequest = {
-                viewModel.restartDialog = false
-                viewModel.startTimer()
-            },
-            title = { Text(stringResource(R.string.action_reset_game)) },
-            text = { Text(stringResource(R.string.reset_game_text)) },
-            dismissButton = {
-                TextButton(onClick = {
+        if (viewModel.restartDialog) {
+            viewModel.pauseTimer()
+            AlertDialog(
+                onDismissRequest = {
                     viewModel.restartDialog = false
                     viewModel.startTimer()
-                }) {
-                    Text(stringResource(R.string.dialog_no))
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    restartButtonAngleState -= 360
-                    viewModel.resetGame(resetTimer)
-                    viewModel.restartDialog = false
-                    viewModel.startTimer()
-                }) {
-                    Text(stringResource(R.string.dialog_yes))
-                }
-            }
-        )
-    }
-
-    if (viewModel.giveUpDialog) {
-        viewModel.pauseTimer()
-        AlertDialog(
-            onDismissRequest = {
-                viewModel.giveUpDialog = false
-                viewModel.startTimer()
-            },
-            title = { Text(stringResource(R.string.action_give_up)) },
-            text = { Text(stringResource(R.string.give_up_text)) },
-            dismissButton = {
-                TextButton(onClick = {
-                    viewModel.giveUpDialog = false
-                    viewModel.startTimer()
-                }) {
-                    Text(stringResource(R.string.dialog_no))
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.giveUp()
-                    viewModel.giveUpDialog = false
-                    viewModel.pauseTimer()
-                }) {
-                    Text(stringResource(R.string.dialog_yes))
-                }
-            }
-        )
-    }
-
-    // Extra life dialog (triggered when mistakes reach effectiveMistakeLimit)
-    val extraLifeDialog by viewModel.extraLifeDialog.collectAsStateWithLifecycle()
-    if (extraLifeDialog) {
-        AlertDialog(
-            onDismissRequest = { viewModel.onExtraLifeAdRejected() },
-            title = { Text("Out of Lives") },
-            text = { Text("Watch an ad to get 1 extra life and continue playing.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    // TODO: integrate ad; call this after ad success
-                    viewModel.onExtraLifeAdWatched()
-                }) {
-                    Text("Watch Ad")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { viewModel.onExtraLifeAdRejected() }) {
-                    Text("Quit")
-                }
-            }
-        )
-    }
-
-    // Extra hint dialog (triggered when hints reach effectiveHintLimit)
-    val extraHintDialog by viewModel.extraHintDialog.collectAsStateWithLifecycle()
-    if (extraHintDialog) {
-        AlertDialog(
-            onDismissRequest = { viewModel.onExtraHintAdRejected() },
-            title = { Text("Out of Hints") },
-            text = { Text("Watch an ad to unlock 1 extra hint.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    // TODO: integrate ad; call this after ad success
-                    viewModel.onExtraHintAdWatched()
-                }) {
-                    Text("Watch Ad")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { viewModel.onExtraHintAdRejected() }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
-
-    // Kanji symbols information dialog
-    if (showKanjiInfo) {
-        AlertDialog(
-            onDismissRequest = { showKanjiInfo = false },
-            title = { Text("Kanji Symbols Guide") },
-            text = {
-                Column {
-                    Text("These are the 9 Kanji used in the game and what they represent:\n")
-
-                    Text("水  – Water: calm, flow, adaptability.")
-                    Text("木  – Tree: growth, stability, roots.")
-                    Text("火  – Fire: energy, passion, power.")
-                    Text("山  – Mountain: strength, patience, challenges.")
-                    Text("空  – Sky: freedom, openness, possibilities.")
-                    Text("月  – Moon: coolness, reflection, calm nights.")
-                    Text("花  – Flower: beauty, creativity, life in bloom.")
-                    Text("風  – Wind: change, movement, freshness.")
-                    Text("日  – Sun: light, clarity, new beginnings.")
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showKanjiInfo = false }) {
-                    Text("Close")
-                }
-            }
-        )
-    }
-
-
-// Show Solution dialog (gates solution behind ad once)
-    val solutionAdDialog by viewModel.solutionAdDialog.collectAsStateWithLifecycle()
-    if (solutionAdDialog) {
-        AlertDialog(
-            onDismissRequest = { viewModel.onSolutionAdRejected() },
-            title = { Text("Watch Solution") },
-            text = { Text("Watch an ad to see the full solution grid.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    // TODO: integrate real ad; after success call:
-                    viewModel.onSolutionAdWatched()
-                }) {
-                    Text("Watch Ad")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { viewModel.onSolutionAdRejected() }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
-
-    if (viewModel.gameCompleted) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0xAA000000)),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-
-                Text(
-                    text = "🎉 Congratulations 🎉",
-                    fontSize = 32.sp,
-                    color = Color.White
-                )
-
-                Text(
-                    text = "You solved the Kanji Sudoku!",
-                    fontSize = 18.sp,
-                    color = Color.White,
-                    modifier = Modifier.padding(top = 12.dp)
-                )
-
-                TextButton(
-                    modifier = Modifier.padding(top = 24.dp),
-                    onClick = {
-
-                        viewModel.resetGame(true)
-
-                        viewModel.gameCompleted = false
-                        viewModel.endGame = false
-                        viewModel.giveUp = false
-                        viewModel.mistakesCount = 0
-
-                        // Start timer again (like restart dialog)
+                },
+                title = { Text(stringResource(R.string.action_reset_game)) },
+                text = { Text(stringResource(R.string.reset_game_text)) },
+                dismissButton = {
+                    TextButton(onClick = {
+                        viewModel.restartDialog = false
                         viewModel.startTimer()
+                    }) { Text(stringResource(R.string.dialog_no)) }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        restartButtonAngleState -= 360
+                        viewModel.resetGame(resetTimer)
+                        viewModel.restartDialog = false
+                        viewModel.startTimer()
+                    }) { Text(stringResource(R.string.dialog_yes)) }
+                }
+            )
+        }
 
+        if (viewModel.giveUpDialog) {
+            viewModel.pauseTimer()
+            AlertDialog(
+                onDismissRequest = {
+                    viewModel.giveUpDialog = false
+                    viewModel.startTimer()
+                },
+                title = { Text(stringResource(R.string.action_give_up)) },
+                text = { Text(stringResource(R.string.give_up_text)) },
+                dismissButton = {
+                    TextButton(onClick = {
+                        viewModel.giveUpDialog = false
+                        viewModel.startTimer()
+                    }) { Text(stringResource(R.string.dialog_no)) }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        viewModel.giveUp()
+                        viewModel.giveUpDialog = false
+                        viewModel.pauseTimer()
+                    }) { Text(stringResource(R.string.dialog_yes)) }
+                }
+            )
+        }
+
+        // Extra life dialog
+        val extraLifeDialog by viewModel.extraLifeDialog.collectAsStateWithLifecycle()
+        if (extraLifeDialog) {
+            AlertDialog(
+                onDismissRequest = { viewModel.onExtraLifeAdRejected() },
+                title = { Text("Get extra life") },
+                text = { Text("Watch an ad to continue with 1 extra life.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        AdManager.showRewarded(activity) {
+                            viewModel.onExtraLifeAdWatched()
+                        }
+                    }) {
+                        Text("Watch Ad")
                     }
-                ) {
-                    Text("Play Again", color = Color.Yellow, fontSize = 20.sp)
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.onExtraLifeAdRejected() }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+
+        // Extra hint dialog
+        val extraHintDialog by viewModel.extraHintDialog.collectAsStateWithLifecycle()
+
+        if (extraHintDialog) {
+            AlertDialog(
+                onDismissRequest = { viewModel.onExtraHintAdRejected() },
+                title = { Text("Get extra hint") },
+                text = { Text("Watch an ad to get 1 extra hint.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        AdManager.showRewarded(activity) {
+                            viewModel.onExtraHintAdWatched()
+                        }
+                    }) {
+                        Text("Watch Ad")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.onExtraHintAdRejected() }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+
+        // Kanji symbols information dialog
+        if (showKanjiInfo) {
+            AlertDialog(
+                onDismissRequest = { showKanjiInfo = false },
+                title = { Text("Kanji Symbols Guide") },
+                text = {
+                    Column {
+                        Text("These are the 9 Kanji used in the game and what they represent:\n")
+                        Text("水  – Water: calm, flow, adaptability.")
+                        Text("木  – Tree: growth, stability, roots.")
+                        Text("火  – Fire: energy, passion, power.")
+                        Text("山  – Mountain: strength, patience, challenges.")
+                        Text("空  – Sky: freedom, openness, possibilities.")
+                        Text("月  – Moon: coolness, reflection, calm nights.")
+                        Text("花  – Flower: beauty, creativity, life in bloom.")
+                        Text("風  – Wind: change, movement, freshness.")
+                        Text("日  – Sun: light, clarity, new beginnings.")
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showKanjiInfo = false }) { Text("Close") }
+                }
+            )
+        }
+
+        // Show Solution dialog
+        val solutionAdDialog by viewModel.solutionAdDialog.collectAsStateWithLifecycle()
+        if (solutionAdDialog) {
+            AlertDialog(
+                onDismissRequest = { viewModel.onSolutionAdRejected() },
+                title = { Text("Watch Solution") },
+                text = { Text("Watch an ad to see the full solution grid.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        AdManager.showRewarded(activity) {
+                            viewModel.onSolutionAdWatched()
+                        }
+                    }) {
+                        Text("Watch Ad")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.onSolutionAdRejected() }) { Text("Cancel") }
+                }
+            )
+        }
+
+        if (viewModel.gameCompleted) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xAA000000)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "🎉 Congratulations 🎉",
+                        fontSize = 32.sp,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "You solved the Kanji Sudoku!",
+                        fontSize = 18.sp,
+                        color = Color.White,
+                        modifier = Modifier.padding(top = 12.dp)
+                    )
+                    TextButton(
+                        modifier = Modifier.padding(top = 24.dp),
+                        onClick = { navigator.popBackStack() }
+                    ) {
+                        Text("Play Again", color = Color.Yellow, fontSize = 20.sp)
+                    }
                 }
             }
         }
-    }
 
-    // ───────────────────── side effects ─────────────────────
+        // ───────────────────── side effects ─────────────────────
 
-    LaunchedEffect(viewModel.mistakesMethod) {
-        viewModel.checkMistakesAll()
-    }
-
-    LaunchedEffect(Unit) {
-        if (!viewModel.endGame && !viewModel.gameCompleted) {
-            viewModel.startTimer()
+        LaunchedEffect(viewModel.mistakesMethod) {
+            viewModel.checkMistakesAll()
         }
-    }
-
-    LaunchedEffect(viewModel.gameCompleted) {
-        if (viewModel.gameCompleted) {
-            viewModel.onGameComplete()
+        LaunchedEffect(Unit) {
+            AdManager.loadInterstitial(context)
+            AdManager.loadRewarded(context)
         }
-    }
 
-    OnLifecycleEvent { _, event ->
-        when (event) {
-            Lifecycle.Event.ON_RESUME -> {
-                if (viewModel.gamePlaying) viewModel.startTimer()
+        LaunchedEffect(Unit) {
+            if (!viewModel.endGame && !viewModel.gameCompleted) {
+                viewModel.startTimer()
             }
-            Lifecycle.Event.ON_PAUSE -> {
-                viewModel.pauseTimer()
-                viewModel.currCell = Cell(-1, -1, 0)
+        }
+        LaunchedEffect(viewModel.gameCompleted) {
+            if (viewModel.gameCompleted) {
+
+                // Show ad first
+                AdManager.showInterstitial(activity) {
+
+                    val timeInSeconds = viewModel.duration.inWholeSeconds
+                    val score = 100000 - timeInSeconds
+                }
             }
-            Lifecycle.Event.ON_DESTROY -> viewModel.pauseTimer()
-            else -> {}
+        }
+// ───────────────────── side effects ─────────────────────
+
+
+        LaunchedEffect(sectionCompleteEvent) {
+            if (sectionCompleteEvent > 0) {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                // consume the event
+                // nothing fancy, just let Compose breathe
+                delay(10)
+            }
+        }
+
+
+// (you had gameCompleted effect etc...)
+
+        OnLifecycleEvent { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    if (viewModel.gamePlaying) viewModel.startTimer()
+                }
+
+                Lifecycle.Event.ON_PAUSE -> {
+                    viewModel.pauseTimer()
+                    viewModel.currCell = Cell(-1, -1, 0)
+                }
+
+                Lifecycle.Event.ON_DESTROY -> viewModel.pauseTimer()
+                else -> {}
+            }
         }
     }
 }
-
 @Composable
 fun TopBoardSection(
     text: String,
@@ -899,7 +918,8 @@ fun TopBoardSection(
     ) {
         Text(
             text = text,
-            modifier = Modifier.padding(horizontal = 4.dp)
+            modifier = Modifier.padding(horizontal = 4.dp),
+            color = Color(0xFF1E293B)
         )
     }
 }
@@ -916,9 +936,7 @@ fun OnLifecycleEvent(onEvent: (owner: LifecycleOwner, event: Lifecycle.Event) ->
         }
 
         lifecycle.addObserver(observer)
-        onDispose {
-            lifecycle.removeObserver(observer)
-        }
+        onDispose { lifecycle.removeObserver(observer) }
     }
 }
 

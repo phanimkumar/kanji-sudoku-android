@@ -58,7 +58,7 @@ fun KanjiInputBar(
                     .clickable(enabled = !isDepleted) {
                         onSelect(symbol)
                     },
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center 
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
 

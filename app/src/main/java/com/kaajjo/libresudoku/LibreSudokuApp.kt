@@ -1,23 +1,28 @@
 package com.kaajjo.libresudoku
 
 import android.app.Application
-import android.content.Context
-import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import androidx.hilt.work.HiltWorkerFactory
+import com.google.android.gms.ads.MobileAds
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
-
+import android.util.Log
 @HiltAndroidApp
 class LibreSudokuApp : Application(), Configuration.Provider {
-    override fun attachBaseContext(base: Context?) {
-        super.attachBaseContext(base)
-    }
 
     @Inject
     lateinit var hiltWorkerFactory: HiltWorkerFactory
+
+    override fun onCreate() {
+        super.onCreate()
+
+        MobileAds.initialize(this) {
+            Log.d("ADS", "AdMob initialized")
+        }
+    }
+
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
             .setWorkerFactory(hiltWorkerFactory)
             .build()
-
 }

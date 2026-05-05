@@ -1,8 +1,6 @@
 package com.kaajjo.libresudoku.ui.components.board
 
 import com.kaajjo.libresudoku.ui.theme.KanjiBoardCellBackground
-import com.kaajjo.libresudoku.KanjiMapper
-
 import com.kaajjo.libresudoku.ui.theme.KanjiOuterBorder
 import com.kaajjo.libresudoku.ui.theme.KanjiSelectedCell
 import com.kaajjo.libresudoku.ui.theme.KanjiRowColHighlight
@@ -39,7 +37,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -58,33 +55,7 @@ import com.kaajjo.libresudoku.ui.util.LightDarkPreview
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.sqrt
-import androidx.compose.ui.graphics.Brush
 
-/**
- * Sudoku board
- *
- * @param board sudoku game
- * @param size sudoku game size (always []
- * @param notes a list of [Note] for sudoku game
- * @param mainTextSize main numbers text size (used when [autoFontSize] is set to false
- * @param autoFontSize adjust numbers font size according to cell size. Enabling this will override [mainTextSize]
- * @param noteTextSize note number text size
- * @param selectedCell currently selected [Cell]
- * @param onClick returns [Cell] that was clicked
- * @param onLongClick returns [Cell] that was long clicked
- * @param identicalNumbersHighlight highlight cells with the same value as selected cell
- * @param errorsHighlight whether to highlight mistakes
- * @param positionLines whether to highlight row and column of currently selected [Cell]
- * @param enabled
- * @param questions  if enabled, "?" will be shown instead of number in cells (used instead of blur modifier on android < 12)
- * @param renderNotes whether to show notes at all
- * @param cellsToHighlight list of [Cell] to highlight
- * @param notesToHighlight list of [Note] to highlight
- * @param zoomable whether to allow zoom and pan the board
- * @param boardColors colors of the board (see [BoardColors])
- * @param crossHighlight highlight some boxes on the board
- * @param cages a list of [Cage] for killer sudoku
- */
 @Composable
 fun Board(
     modifier: Modifier = Modifier,
@@ -118,7 +89,8 @@ fun Board(
     zoomable: Boolean = false,
     boardColors: SudokuBoardColors = LocalBoardColors.current,
     crossHighlight: Boolean = false,
-    cages: List<Cage> = emptyList()
+    cages: List<Cage> = emptyList(),
+    selectedNumberForHighlight: Int = 0, // ✅ added
 )
 {
     BoxWithConstraints(
@@ -126,28 +98,19 @@ fun Board(
             .fillMaxWidth()
             .aspectRatio(1f)
             .padding(4.dp)
-        
-    )
-
-    {
+    ) {
         val maxWidth = constraints.maxWidth.toFloat()
 
-        // single cell size
         val cellSize by remember(size) { mutableFloatStateOf(maxWidth / size.toFloat()) }
-        // div for notes in one row in cell
         val cellSizeDivWidth by remember(size) { mutableFloatStateOf(cellSize / ceil(sqrt(size.toFloat()))) }
 
         val errorColor = boardColors.errorColor
-        val foregroundColor = boardColors.foregroundColor
+        val highlightColor = boardColors.highlightColor
         val outerFrameColor = KanjiOuterBorder
-        val thickLineColor = KanjiSubgridBorder  // Navy Blue
-        val thinLineColor = KanjiCellBorder   // Black
-        // locked numbers
-        val altForegroundColor = boardColors.altForegroundColor
+        val thinLineColor = Color(0xFF94A3B8).copy(alpha = 0.7f)
+        val thickLineColor = Color(0xFF334155)
         val notesColor = boardColors.notesColor
 
-        // highlight (cells)
-        val highlightColor = boardColors.highlightColor
         val selectedCellColor = KanjiSelectedCell
         val rowColHighlightColor = KanjiRowColHighlight
         val sameSymbolHighlightColor = KanjiSameSymbolHighlight
@@ -165,6 +128,7 @@ fun Board(
                 }
             }
         }
+
         val noteSizePx = with(LocalDensity.current) { (cellSizeDivWidth * 0.8f).toSp().toPx() }
         val killerSumSizePx = with(LocalDensity.current) { noteSizePx * 1.1f }
 
@@ -173,39 +137,41 @@ fun Board(
 
         val killerSumBounds by remember { mutableStateOf(android.graphics.Rect()) }
 
-        // paints
-        // numbers
         var textPaint by remember(fontSizePx) {
             mutableStateOf(
                 Paint().apply {
                     color = Color(0xFF8B0000).toArgb()
                     isAntiAlias = true
                     textSize = fontSizePx
+                    isFakeBoldText = true
+                    style = Paint.Style.FILL_AND_STROKE
+                    strokeWidth = 0.8f
                 }
             )
         }
-        // errors
+
         var errorTextPaint by remember {
             mutableStateOf(
                 Paint().apply {
                     color = errorColor.toArgb()
                     isAntiAlias = true
                     textSize = fontSizePx
+                    isFakeBoldText = true
                 }
             )
         }
-        // locked numbers
+
         var lockedTextPaint by remember {
             mutableStateOf(
                 Paint().apply {
                     color = Color(0xFF8B0000).toArgb()
                     isAntiAlias = true
                     textSize = fontSizePx
+                    isFakeBoldText = true
                 }
             )
         }
 
-        // notes
         var notePaint by remember {
             mutableStateOf(
                 Paint().apply {
@@ -235,12 +201,14 @@ fun Board(
             )
         }
 
-        val context = LocalContext.current
         LaunchedEffect(mainTextSize, noteTextSize, boardColors) {
             textPaint = Paint().apply {
                 color = Color(0xFF8B0000).toArgb()
                 isAntiAlias = true
                 textSize = fontSizePx
+                isFakeBoldText = true
+                style = Paint.Style.FILL_AND_STROKE
+                strokeWidth = 0.8f
             }
             notePaint = Paint().apply {
                 color = notesColor.toArgb()
@@ -251,11 +219,13 @@ fun Board(
                 color = Color(230, 67, 83).toArgb()
                 isAntiAlias = true
                 textSize = fontSizePx
+                isFakeBoldText = true
             }
             lockedTextPaint = Paint().apply {
                 color = Color(0xFF8B0000).toArgb()
                 isAntiAlias = true
                 textSize = fontSizePx
+                isFakeBoldText = true
             }
             killerSumPaint = Paint().apply {
                 color = notesColor.toArgb()
@@ -325,20 +295,20 @@ fun Board(
                 translationY = -offset.y * zoom
                 scaleX = zoom
                 scaleY = zoom
-                TransformOrigin(0f, 0f).also { transformOrigin = it }
+                transformOrigin = TransformOrigin(0f, 0f)
             }
+
         Canvas(
             modifier = if (zoomable) boardModifier.then(zoomModifier) else boardModifier
         ) {
             drawRect(
-                color = KanjiBoardCellBackground,
+                color = Color(0xFFF1F5F9),
                 size = this.size
-               )
+            )
 
             val cornerRadius = CornerRadius(15f, 15f)
 
             if (selectedCell.row >= 0 && selectedCell.col >= 0) {
-                // current cell
                 drawRoundCell(
                     row = selectedCell.row,
                     col = selectedCell.col,
@@ -353,6 +323,62 @@ fun Board(
                     color = selectedCellColor,
                     cornerRadius = cornerRadius
                 )
+                if (selectedCell.row >= 0 && selectedCell.col >= 0) {
+                    drawRoundCell(
+                        row = selectedCell.row,
+                        col = selectedCell.col,
+                        gameSize = size,
+                        rect = Rect(
+                            offset = Offset(
+                                x = selectedCell.col * cellSize,
+                                y = selectedCell.row * cellSize
+                            ),
+                            size = Size(cellSize, cellSize)
+                        ),
+                        color = selectedCellColor,
+                        cornerRadius = cornerRadius
+                    )
+
+                    if (positionLines) {
+                        drawPositionLines(
+                            row = selectedCell.row,
+                            col = selectedCell.col,
+                            gameSize = size,
+                            color = rowColHighlightColor,
+                            cellSize = cellSize,
+                            lineLength = maxWidth,
+                            cornerRadius = cornerRadius
+                        )
+
+                    }
+                }
+
+// 👇 ADD HERE (exactly here, not above, not below anything else)
+
+                // ✅ FINAL WORKING BLOCK
+                // ✅ FINAL SINGLE SOURCE OF TRUTH
+                if (selectedNumberForHighlight > 0) {
+                    for (i in 0 until size) {
+                        for (j in 0 until size) {
+
+                            val cell = board[i][j]
+
+                            if (cell.value == selectedNumberForHighlight) {
+                                drawRoundCell(
+                                    row = i,
+                                    col = j,
+                                    gameSize = size,
+                                    rect = Rect(
+                                        offset = Offset(j * cellSize, i * cellSize),
+                                        size = Size(cellSize, cellSize)
+                                    ),
+                                    color = KanjiSameSymbolHighlight.copy(alpha = 0.22f),
+                                    cornerRadius = cornerRadius
+                                )
+                            }
+                        }
+                    }
+                }
                 if (positionLines) {
                     drawPositionLines(
                         row = selectedCell.row,
@@ -365,10 +391,12 @@ fun Board(
                     )
                 }
             }
-            if (identicalNumbersHighlight) {
+
+            // ✅ symbol-first highlight
+            if (identicalNumbersHighlight && selectedNumberForHighlight > 0) {
                 for (i in 0 until size) {
                     for (j in 0 until size) {
-                        if (board[i][j].value == selectedCell.value && board[i][j].value != 0) {
+                        if (board[i][j].value == selectedNumberForHighlight) {
                             drawRoundCell(
                                 row = board[i][j].row,
                                 col = board[i][j].col,
@@ -387,7 +415,7 @@ fun Board(
                     }
                 }
             }
-            // 🔴 Error cells: fill entire cell with red background
+
             if (errorsHighlight) {
                 for (i in 0 until size) {
                     for (j in 0 until size) {
@@ -404,7 +432,6 @@ fun Board(
                                     ),
                                     size = Size(cellSize, cellSize)
                                 ),
-                                // Use board error color as background with some transparency
                                 color = errorColor.copy(alpha = 0.35f),
                                 cornerRadius = cornerRadius
                             )
@@ -412,7 +439,6 @@ fun Board(
                     }
                 }
             }
-
 
             cellsToHighlight?.forEach {
                 drawRoundCell(
@@ -438,7 +464,6 @@ fun Board(
                 cornerRadius = CornerRadius(15f, 15f)
             )
 
-            // horizontal line
             for (i in 1 until size) {
                 val isThickLine = i % horThick == 0
                 drawLine(
@@ -448,7 +473,7 @@ fun Board(
                     strokeWidth = if (isThickLine) thickLineWidth else thinLineWidth
                 )
             }
-            // vertical line
+
             for (i in 1 until size) {
                 val isThickLine = i % vertThick == 0
                 if (maxWidth >= cellSize * i) {
@@ -485,7 +510,6 @@ fun Board(
                 )
             }
 
-            // doesn't look good on 6x6
             if (crossHighlight && size != 6) {
                 drawCrossSelection(
                     gameSize = size,
@@ -529,7 +553,6 @@ fun Board(
     }
 }
 
-
 @LightDarkPreview
 @Composable
 private fun BoardPreviewLight() {
@@ -551,6 +574,7 @@ private fun BoardPreviewLight() {
                 notes = notes,
                 selectedCell = Cell(-1, -1),
                 onClick = { },
+                selectedNumberForHighlight = 1,
                 boardColors = SudokuBoardColorsImpl(
                     foregroundColor = BoardColors.foregroundColor,
                     notesColor = BoardColors.notesColor,

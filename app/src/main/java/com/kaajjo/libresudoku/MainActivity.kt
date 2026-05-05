@@ -1,5 +1,7 @@
 package com.kaajjo.libresudoku
 import com.kaajjo.libresudoku.BuildConfig
+import com.google.android.gms.ads.MobileAds
+
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
@@ -68,6 +70,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+
+       // MobileAds.initialize(this)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         if (!BuildConfig.DEBUG) {
             GlobalExceptionHandler.initialize(applicationContext, CrashActivity::class.java)

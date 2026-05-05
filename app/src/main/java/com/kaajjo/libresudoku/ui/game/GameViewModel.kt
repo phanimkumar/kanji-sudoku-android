@@ -32,10 +32,9 @@ import com.kaajjo.libresudoku.domain.repository.SavedGameRepository
 import com.kaajjo.libresudoku.domain.usecase.board.GetBoardUseCase
 import com.kaajjo.libresudoku.domain.usecase.board.UpdateBoardUseCase
 import com.kaajjo.libresudoku.domain.usecase.record.GetAllRecordsUseCase
-
-
 import com.kaajjo.libresudoku.ui.game.components.ToolBarItem
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -49,6 +48,8 @@ import java.time.ZonedDateTime
 import java.util.Timer
 import javax.inject.Inject
 import kotlin.concurrent.fixedRateTimer
+import kotlin.math.ceil
+import kotlin.math.sqrt
 import kotlin.time.Duration
 import kotlin.time.DurationUnit
 import kotlin.time.toDuration
@@ -68,52 +69,39 @@ class GameViewModel @Inject constructor(
 ) : ViewModel() {
 
     companion object {
-        const val HARD_MISTAKE_LIMIT = 3  // base lives
-        const val HARD_HINT_LIMIT = 3     // base hints
+        const val HARD_MISTAKE_LIMIT = 3
+        const val HARD_HINT_LIMIT = 3
     }
 
     // ---- HARD LIMITS & AD EXTRAS ----
-
-    // Extra lives / hints earned via ads
     private var extraLivesFromAds = 0
     private var extraHintsFromAds = 0
 
-    // Effective limits (base + ad extras)
     val effectiveMistakeLimit: Int
         get() = HARD_MISTAKE_LIMIT + extraLivesFromAds
 
     val effectiveHintLimit: Int
         get() = HARD_HINT_LIMIT + extraHintsFromAds
 
-    // Dialog state for ads
+    // Dialog state (ads coming soon)
     private val _extraLifeDialog = MutableStateFlow(false)
     val extraLifeDialog = _extraLifeDialog.asStateFlow()
 
     private val _extraHintDialog = MutableStateFlow(false)
     val extraHintDialog = _extraHintDialog.asStateFlow()
 
-    // ---- Ad dialog helpers ----
+    // ✅ HAPTIC EVENT (GameScreen listens and vibrates)
+    private val _sectionCompleteEvent = MutableStateFlow(0)
+    val sectionCompleteEvent = _sectionCompleteEvent.asStateFlow()
 
-    fun showExtraLifeDialog() {
-        _extraLifeDialog.value = true
+    private fun notifySectionComplete() {
+        _sectionCompleteEvent.value = _sectionCompleteEvent.value + 1
     }
-/*
-    fun onExtraLifeAdWatched() {
-        // user watched ad → give one more life
-        extraLivesFromAds += 1
-        _extraLifeDialog.value = false
-        // game continues; player can press Play to resume timer
-    }*/
 
-    /*fun onExtraLifeAdRejected() {
-        // user refused → treat as give up / game over
-        _extraLifeDialog.value = false
-        giveUp()
-    }
-*/
-    fun showExtraHintDialog() {
-        _extraHintDialog.value = true
-    }
+    // ✅ Trackers for one-time haptic per section
+    private val completedRows = mutableSetOf<Int>()
+    private val completedCols = mutableSetOf<Int>()
+    private val completedBoxes = mutableSetOf<Pair<Int, Int>>() // (boxRowIndex, boxColIndex)
 
     // --- Show Solution Ad Gate ---
     private val _solutionAdDialog = MutableStateFlow(false)
@@ -126,105 +114,62 @@ class GameViewModel @Inject constructor(
     }
 
     fun onSolutionAdWatched() {
-        // user watched ad → unlock solution for this game
         solutionAdWatched = true
         _solutionAdDialog.value = false
-        showSolution = true    // actually reveal solution
+        showSolution = true
     }
 
     fun onSolutionAdRejected() {
         _solutionAdDialog.value = false
     }
 
+    fun showExtraLifeDialog() {
+        _extraLifeDialog.value = true
+    }
+
+    fun showExtraHintDialog() {
+        _extraHintDialog.value = true
+    }
 
     fun onExtraHintAdWatched() {
-        // Player watched ad: give +1 extra hint
-        extraHintsFromAds += 1
         _extraHintDialog.value = false
-        // Hint will be consumed on next Hint tap
+
+        extraHintsFromAds += 1
+
+        endGame = false
+        gamePlaying = true
+
+        startTimer()
     }
 
     fun onExtraHintAdRejected() {
         _extraHintDialog.value = false
     }
 
-    // ⬇️ your existing init { ... } and the rest of the class continues from here
-    init {
-        val gameUid: Long = savedStateHandle["gameUid"] ?: 0L
-        val continueSaved: Boolean = savedStateHandle["playedBefore"] ?: false
-
-        val sudokuParser = SudokuParser()
-
-
-        viewModelScope.launch(Dispatchers.IO) {
-            boardEntity = getBoardUseCase(gameUid)
-            val savedGame = savedGameRepository.get(boardEntity.uid)
-
-            withContext(Dispatchers.Main) {
-                gameType = boardEntity.type
-                gameDifficulty = boardEntity.difficulty
-            }
-
-            // ... keep the rest of your init as it is ...
-
-
-            withContext(Dispatchers.Default) {
-                initialBoard = sudokuParser.parseBoard(
-                    boardEntity.initialBoard,
-                    boardEntity.type
-                ).toList()
-                initialBoard.forEach { cells ->
-                    cells.forEach { cell ->
-                        cell.locked = cell.value != 0
-                    }
-                }
-
-                if (boardEntity.solvedBoard.isNotBlank() && !boardEntity.solvedBoard.contains("0")) {
-                    solvedBoard = sudokuParser.parseBoard(
-                        boardEntity.solvedBoard,
-                        boardEntity.type
-                    )
-                    boardEntity.killerCages?.let { cagesString ->
-                        cages = sudokuParser.parseKillerSudokuCages(cagesString)
-                    }
-                    for (i in solvedBoard.indices) {
-                        for (j in solvedBoard.indices) {
-                            solvedBoard[i][j].locked = initialBoard[i][j].locked
-                        }
-                    }
-                } else {
-                    withContext(Dispatchers.Main) {
-                        solveBoard()
-                    }
-                }
-            }
-
-            withContext(Dispatchers.Main) {
-                if (savedGame != null && continueSaved) {
-                    restoreSavedGame(savedGame)
-                } else {
-                    gameBoard = initialBoard
-                }
-                size = gameBoard.size
-                undoRedoManager = UndoRedoManager(GameState(gameBoard, notes))
-                remainingUsesList = countRemainingUses(gameBoard)
-            }
-            saveGame()
-        }
-    }
     fun onExtraLifeAdWatched() {
-        // user watched ad → give one more life
-        extraLivesFromAds += 1
         _extraLifeDialog.value = false
-        // timer resume will be handled from GameScreen after ad if you want
+
+        extraLivesFromAds += 1
+        mistakesCount = effectiveMistakeLimit - 1
+        endGame = false
+        gamePlaying = true
+
+
+
+        startTimer()
     }
 
     fun onExtraLifeAdRejected() {
-        // user refused → normal game over
-        giveUp()
         _extraLifeDialog.value = false
+        giveUp()
     }
 
+    // ---- IMPORTANT: crash-proof async data ----
+    private var boardEntity: SudokuBoard? = null
+    private var initialBoard: List<List<Cell>>? = null
+    private var isLoaded by mutableStateOf(false)
+
+    // ---- state ----
     var giveUp by mutableStateOf(false)
 
     val fontSize = appSettingsManager.fontSize
@@ -233,27 +178,21 @@ class GameViewModel @Inject constructor(
     var remainingUsesList by mutableStateOf<List<Int>>(emptyList())
 
     val firstGame = appSettingsManager.firstGame
-    private lateinit var boardEntity: SudokuBoard
+
     var size by mutableIntStateOf(9)
     var gameType by mutableStateOf(GameType.Unspecified)
     var gameDifficulty by mutableStateOf(GameDifficulty.Unspecified)
 
-    // dialogs, menus
     var restartDialog by mutableStateOf(false)
     var showMenu by mutableStateOf(false)
     var showNotesMenu by mutableStateOf(false)
     var showUndoRedoMenu by mutableStateOf(false)
 
-    // count remaining uses
     var remainingUse = appSettingsManager.remainingUse
-
-    // timer
     var timerEnabled = appSettingsManager.timerEnabled
 
-    // identical numbers highlight
     val identicalHighlight = appSettingsManager.highlightIdentical
 
-    // mistakes checking method
     var mistakesMethod = appSettingsManager.highlightMistakes.stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
@@ -277,24 +216,19 @@ class GameViewModel @Inject constructor(
     )
 
     var resetTimerOnRestart = appSettingsManager.resetTimerEnabled
-
     var disableHints = appSettingsManager.hintsDisabled
 
     var endGame by mutableStateOf(false)
-
     var giveUpDialog by mutableStateOf(false)
 
-    // mistakes
-    // used for mistakes limit
     var mistakesCount by mutableIntStateOf(0)
 
-    // notes
     var notesToggled by mutableStateOf(false)
     var notes by mutableStateOf(emptyList<Note>())
 
-    private lateinit var initialBoard: List<List<Cell>>
-    var gameBoard by mutableStateOf(List(9) { row -> List(9) { col -> Cell(row, col, 0) } })
-    var solvedBoard = emptyList<List<Cell>>()
+    // default board (safe)
+    var gameBoard by mutableStateOf(List(9) { r -> List(9) { c -> Cell(r, c, 0) } })
+    var solvedBoard by mutableStateOf(emptyList<List<Cell>>())
     var cages by mutableStateOf(emptyList<Cage>())
 
     var currCell by mutableStateOf(Cell(-1, -1, 0))
@@ -302,28 +236,24 @@ class GameViewModel @Inject constructor(
     private var sudokuUtils = SudokuUtils()
     var gameCompleted by mutableStateOf(false)
 
-    // Selected number for digit first method
+    // Selected number for digit-first method (kept, but you force cell-first in processInputKeyboard)
     var digitFirstNumber by mutableIntStateOf(0)
-    private val inputMethod = appSettingsManager.inputMethod
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.Eagerly,
-            initialValue = PreferencesConstants.DEFAULT_INPUT_METHOD
-        )
+    private val inputMethod = appSettingsManager.inputMethod.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = PreferencesConstants.DEFAULT_INPUT_METHOD
+    )
 
-    // temporarily use digit first method when true
     private var overrideInputMethodDF by mutableStateOf(false)
 
-    // show/hide solution (when give up)
     var showSolution by mutableStateOf(false)
-
-    // when true, tapping on any cell will clear it
     var eraseButtonToggled by mutableStateOf(false)
 
-    // used only in the game-completed section. Not saved anywhere
     var hintsUsed = 0
     var mistakesMade = 0
     var notesTaken = 0
+
+
 
     val allRecords by lazy { getAllRecordsUseCase(gameDifficulty, gameType) }
 
@@ -340,43 +270,228 @@ class GameViewModel @Inject constructor(
     private var _advancedHintText = MutableStateFlow("")
     val advancedHintText = _advancedHintText.asStateFlow()
 
+    // ---- timer ----
+    var timeText by mutableStateOf("00:00")
+    var duration = Duration.ZERO
+        private set
+    private var timer: Timer? = null
+    var gamePlaying by mutableStateOf(false)
+
+    init {
+        val navUid: Long = savedStateHandle["gameUid"] ?: 0L
+        val continueSaved: Boolean = savedStateHandle["playedBefore"] ?: false
+        val sudokuParser = SudokuParser()
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val boardUidToLoad = navUid
+
+                val entity = getBoardUseCase(boardUidToLoad)
+                boardEntity = entity
+
+                val savedGame: SavedGame? = savedGameRepository.get(entity.uid)
+
+                withContext(Dispatchers.Main) {
+                    gameType = entity.type
+                    gameDifficulty = entity.difficulty
+                }
+
+                val initBoard = withContext(Dispatchers.Default) {
+                    sudokuParser.parseBoard(entity.initialBoard, entity.type).toList().also { b ->
+                        b.forEach { row -> row.forEach { cell -> cell.locked = cell.value != 0 } }
+                    }
+                }
+                initialBoard = initBoard
+
+                withContext(Dispatchers.Default) {
+                    if (entity.solvedBoard.isNotBlank() && !entity.solvedBoard.contains("0")) {
+                        val solved = sudokuParser.parseBoard(entity.solvedBoard, entity.type)
+                        entity.killerCages?.let { cagesString ->
+                            cages = sudokuParser.parseKillerSudokuCages(cagesString)
+                        }
+                        for (i in solved.indices) {
+                            for (j in solved.indices) {
+                                solved[i][j].locked = initBoard[i][j].locked
+                            }
+                        }
+                        solvedBoard = solved
+                    } else {
+                        withContext(Dispatchers.Main) { solveBoardSafe() }
+                    }
+                }
+
+                withContext(Dispatchers.Main) {
+                    if (
+                        continueSaved &&
+                        savedGame != null &&
+                        savedGame.currentBoard.isNotBlank() &&
+                        !savedGame.completed
+                    ) {
+                        restoreSavedGameSafe(savedGame)
+                    } else {
+                        gameBoard = initBoard
+                    }
+
+                    size = gameBoard.size
+                    undoRedoManager = UndoRedoManager(GameState(gameBoard, notes))
+                    remainingUsesList = countRemainingUses(gameBoard)
+
+                    // ✅ Correction 3: initialize trackers AFTER restore/init
+                    rebuildCompletedSections()
+
+                    isLoaded = true
+                }
+
+
+            } catch (ce: CancellationException) {
+                // ignore
+            } catch (_: Throwable) {
+                withContext(Dispatchers.Main) {
+                    isLoaded = false
+                    endGame = true
+                    gamePlaying = false
+                }
+            }
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        timer?.cancel()
+        timer = null
+    }
+
+    // ---- helpers ----
+    private fun ready(): Boolean = boardEntity != null && initialBoard != null
+
     private fun clearNotesAtCell(
         notes: List<Note>,
         row: Int = currCell.row,
         col: Int = currCell.col
     ): List<Note> {
-        return notes.minus(
-            notes.filter { note ->
-                note.row == row
-                        && note.col == col
-            }.toSet()
-        )
+        return notes.minus(notes.filter { it.row == row && it.col == col }.toSet())
     }
 
     private fun emptyNotes(): List<Note> = emptyList()
 
     fun clearNotes() {
+        if (!ready()) return
         notes = emptyNotes()
-        undoRedoManager.addState(
-            GameState(gameBoard, notes)
-        )
+        undoRedoManager.addState(GameState(gameBoard, notes))
     }
 
-    private fun addNote(note: Int, row: Int, col: Int): List<Note> {
-        return notes.plus(Note(row, col, note))
-    }
+    private fun addNote(note: Int, row: Int, col: Int): List<Note> =
+        notes.plus(Note(row, col, note))
 
     private fun removeNote(note: Int, row: Int, col: Int): List<Note> =
         notes.minus(Note(row, col, note))
 
     private fun getBoardNoRef(): List<List<Cell>> =
-        gameBoard.map { items -> items.map { item -> item.copy() } }
+        gameBoard.map { row -> row.map { it.copy() } }
 
+    private fun countRemainingUses(board: List<List<Cell>>): MutableList<Int> {
+        val uses = mutableListOf<Int>()
+        val localSize = board.size
+        for (i in 0 until localSize) {
+            uses.add(localSize - sudokuUtils.countNumberInBoard(board, i + 1))
+        }
+        return uses
+    }
+
+    private fun getSectionHeightForSize(gameSize: Int): Int {
+        return when (gameSize) {
+            6 -> 2
+            9 -> 3
+            12 -> 3
+            else -> ceil(sqrt(gameSize.toFloat())).toInt()
+        }
+    }
+
+    private fun getSectionWidthForSize(gameSize: Int): Int {
+        return when (gameSize) {
+            6 -> 3
+            9 -> 3
+            12 -> 4
+            else -> ceil(sqrt(gameSize.toFloat())).toInt()
+        }
+    }
+
+    // ✅ Correct-only checks using solvedBoard
+    private fun isRowCorrect(board: List<List<Cell>>, row: Int): Boolean {
+        if (solvedBoard.isEmpty()) return false
+        for (c in board[row].indices) {
+            val v = board[row][c].value
+            if (v == 0) return false
+            if (v != solvedBoard[row][c].value) return false
+        }
+        return true
+    }
+
+    private fun isColCorrect(board: List<List<Cell>>, col: Int): Boolean {
+        if (solvedBoard.isEmpty()) return false
+        for (r in board.indices) {
+            val v = board[r][col].value
+            if (v == 0) return false
+            if (v != solvedBoard[r][col].value) return false
+        }
+        return true
+    }
+
+    private fun isBoxCorrect(board: List<List<Cell>>, row: Int, col: Int): Boolean {
+        if (solvedBoard.isEmpty()) return false
+
+        val boxH = getSectionHeightForSize(board.size)
+        val boxW = getSectionWidthForSize(board.size)
+
+        val boxRow = (row / boxH) * boxH
+        val boxCol = (col / boxW) * boxW
+
+        for (r in boxRow until boxRow + boxH) {
+            for (c in boxCol until boxCol + boxW) {
+                val v = board[r][c].value
+                if (v == 0) return false
+                if (v != solvedBoard[r][c].value) return false
+            }
+        }
+        return true
+    }
+
+    // ✅ Correct3: initialize trackers based on restored/init board
+    private fun rebuildCompletedSections() {
+        if (solvedBoard.isEmpty()) return
+
+        completedRows.clear()
+        completedCols.clear()
+        completedBoxes.clear()
+
+        val localSize = gameBoard.size
+        val boxH = getSectionHeightForSize(localSize)
+        val boxW = getSectionWidthForSize(localSize)
+
+        for (r in 0 until localSize) {
+            if (isRowCorrect(gameBoard, r)) completedRows.add(r)
+        }
+        for (c in 0 until localSize) {
+            if (isColCorrect(gameBoard, c)) completedCols.add(c)
+        }
+
+        for (r in 0 until localSize step boxH) {
+            for (c in 0 until localSize step boxW) {
+                if (isBoxCorrect(gameBoard, r, c)) {
+                    completedBoxes.add(Pair(r / boxH, c / boxW))
+                }
+            }
+        }
+    }
+
+    // ---- core: set value ----
     private fun setValueCell(
         value: Int,
         row: Int = currCell.row,
         col: Int = currCell.col
     ): List<List<Cell>> {
+        if (!ready()) return gameBoard
+
         var new = getBoardNoRef()
 
         new[row][col].value = value
@@ -386,72 +501,73 @@ class GameViewModel @Inject constructor(
             currCell = currCell.copy(value = new[row][col].value)
         }
 
-        // If cell cleared → no error, just return
         if (value == 0) {
             new[row][col].error = false
             currCell = currCell.copy(error = false)
             return new
         }
 
-        // ─── STRICT MISTAKE CHECK: ONLY AGAINST SOLUTION ───
         when (mistakesMethod.value) {
-            0 -> {
-                // mistake checking off (no red, no error)
-                new[row][col].error = false
-            }
-            else -> {
-                // treat any non-matching symbol as mistake
-                new = isValidCell(new, new[row][col])
-            }
+            0 -> new[row][col].error = false
+            else -> new = isValidCell(new, new[row][col])
         }
 
-        // keep currCell error in sync with board
         currCell = currCell.copy(error = new[row][col].error)
 
-        // updating mistakes limit
         if (new[row][col].error) {
             mistakesMade++
-
-                mistakesCount++
-                if (mistakesCount >= effectiveMistakeLimit && !endGame) {
-                    pauseTimer()
-                    _extraLifeDialog.value = true   // extra life dialog (ad)
-                }
-
+            mistakesCount++
+            if (mistakesCount >= effectiveMistakeLimit && !endGame) {
+                pauseTimer()
+                _extraLifeDialog.value = true
+            }
         }
 
         gameCompleted = isCompleted(new)
-        if (gameCompleted) {
-            onGameComplete()
-        }
+        if (gameCompleted) onGameComplete()
 
         if (autoEraseNotes.value) {
-            notes = autoEraseNotes(new, currCell)
+            notes = autoEraseNotesSafe(new, currCell)
         }
+
+        // ✅ One-time haptic per completed section
+        // ✅ One haptic event per move (avoid 2–3 rapid events being collapsed)
+        if (value != 0) {
+            var didComplete = false
+
+            if (row !in completedRows && isRowCorrect(new, row)) {
+                completedRows.add(row)
+                didComplete = true
+            }
+
+            if (col !in completedCols && isColCorrect(new, col)) {
+                completedCols.add(col)
+                didComplete = true
+            }
+
+            val boxH = getSectionHeightForSize(new.size)
+            val boxW = getSectionWidthForSize(new.size)
+            val boxKey = Pair(row / boxH, col / boxW)
+
+            if (boxKey !in completedBoxes && isBoxCorrect(new, row, col)) {
+                completedBoxes.add(boxKey)
+                didComplete = true
+            }
+
+            if (didComplete) notifySectionComplete()
+        }
+
 
         return new
     }
 
-
-    private fun countRemainingUses(board: List<List<Cell>>): MutableList<Int> {
-        val uses = mutableListOf<Int>()
-        for (i in 0 until size) {
-            uses.add(size - sudokuUtils.countNumberInBoard(board, i + 1))
-        }
-        return uses
-    }
-
+    // ---- input handling ----
     fun processInput(cell: Cell, remainingUse: Boolean, longTap: Boolean = false): Boolean {
-        // 🔒 Don't allow any more moves once we've hit the effective mistake limit
+        if (!ready()) return false
         if (mistakesCount >= effectiveMistakeLimit) return false
 
         if (gamePlaying) {
-            currCell =
-                if (currCell.row == cell.row && currCell.col == cell.col && digitFirstNumber == 0) {
-                    Cell(-1, -1)
-                } else {
-                    cell
-                }
+            currCell = cell
 
             if (currCell.row >= 0 && currCell.col >= 0 && !gameBoard[currCell.row][currCell.col].locked) {
                 if ((inputMethod.value == 1 || overrideInputMethodDF) && digitFirstNumber > 0) {
@@ -459,8 +575,7 @@ class GameViewModel @Inject constructor(
                         if ((remainingUsesList.size >= digitFirstNumber && remainingUsesList[digitFirstNumber - 1] > 0) || !remainingUse) {
                             processNumberInput(digitFirstNumber)
                             undoRedoManager.addState(GameState(gameBoard, notes))
-                            if (notesToggled) currCell =
-                                Cell(currCell.row, currCell.col, digitFirstNumber)
+                            if (notesToggled) currCell = Cell(currCell.row, currCell.col, digitFirstNumber)
                         }
                     } else if (!currCell.locked) {
                         gameBoard = setValueCell(0)
@@ -476,62 +591,35 @@ class GameViewModel @Inject constructor(
                 }
                 remainingUsesList = countRemainingUses(gameBoard)
                 return true
-            } else {
-                return false
             }
-        } else {
             return false
         }
+        return false
     }
 
     fun processInputKeyboard(number: Int, longTap: Boolean = false) {
-        // 🔒 Stop keyboard input once limit is reached
+        if (!ready()) return
+        if (!gamePlaying) return
         if (mistakesCount >= effectiveMistakeLimit) return
-// 🚫 Prevent deleting symbol when user taps the same number already placed
-        val current = currCell.value
-        if (!longTap && inputMethod.value == 0 && current == number) {
-            return // <-- fixed behaviour
-        }
-        if (gamePlaying) {
-            if (!longTap) {
-                if (inputMethod.value == 0 && !currCell.locked && currCell.col >= 0 && currCell.row >= 0) {
-                    overrideInputMethodDF = false
-                    digitFirstNumber = 0
-                    processNumberInput(number)
-                    undoRedoManager.addState(GameState(gameBoard, notes))
-                } else if (inputMethod.value == 1) {
-                    digitFirstNumber = if (digitFirstNumber == number) 0 else number
-                    currCell = Cell(-1, -1, digitFirstNumber)
-                }
-            } else {
-                if (inputMethod.value == 0) {
-                    overrideInputMethodDF = true
-                    digitFirstNumber = if (digitFirstNumber == number) 0 else number
-                    currCell = Cell(-1, -1, digitFirstNumber)
-                }
-            }
-            eraseButtonToggled = false
-        }
+
+        // ✅ keypad-first selection must happen even without selected cell
+        digitFirstNumber = number
+        overrideInputMethodDF = true
+        eraseButtonToggled = false
+
+        // ✅ do not place number here
+        // placement will happen when user taps a cell in processInput()
     }
 
 
     fun processNumberInput(number: Int) {
+        if (!ready()) return
         val existing = gameBoard[currCell.row][currCell.col].value
-        if (existing == number) {
-            return
-        }
+        if (existing == number) return
+
         if (currCell.row >= 0 && currCell.col >= 0 && gamePlaying && !currCell.locked) {
             if (!notesToggled) {
-                // Clear all note to set a number
                 notes = clearNotesAtCell(notes, currCell.row, currCell.col)
-
-                val currentValue = gameBoard[currCell.row][currCell.col].value
-
-                // NEW: if same number is tapped again, do nothing
-                if (currentValue == number) {
-                    return
-                }
-
                 gameBoard = setValueCell(number)
             } else {
                 gameBoard = setValueCell(0)
@@ -542,6 +630,7 @@ class GameViewModel @Inject constructor(
     }
 
     private fun setNote(number: Int) {
+        if (!ready()) return
         val note = Note(currCell.row, currCell.col, number)
         notes = if (notes.contains(note)) {
             removeNote(note.value, note.row, note.col)
@@ -551,29 +640,23 @@ class GameViewModel @Inject constructor(
         }
     }
 
-    var timeText by mutableStateOf("00:00")
-    private var duration = Duration.ZERO
-    private lateinit var timer: Timer
-    var gamePlaying by mutableStateOf(false)
-
+    // ---- timer ----
     fun startTimer() {
-        if (!gamePlaying) {
-            gamePlaying = true
-            val updateRate = 50L
+        if (!ready()) return
+        if (gamePlaying) return
+        if (endGame || gameCompleted) return
+        gamePlaying = true
+        val updateRate = 50L
 
-            timer = fixedRateTimer(initialDelay = updateRate, period = updateRate) {
-                val prevTime = duration
+        timer?.cancel()
+        timer = fixedRateTimer(initialDelay = updateRate, period = updateRate) {
+            val prevTime = duration
+            duration = duration.plus((updateRate * 1e6).toDuration(DurationUnit.NANOSECONDS))
+            if (prevTime.toInt(DurationUnit.SECONDS) != duration.toInt(DurationUnit.SECONDS)) {
+                timeText = duration.toFormattedString()
+                if (gameBoard.any { it.any { cell -> cell.value != 0 } }) {
+                    viewModelScope.launch(Dispatchers.IO) { saveGameSafe() }
 
-                duration = duration.plus((updateRate * 1e6).toDuration(DurationUnit.NANOSECONDS))
-                // update text every second
-                if (prevTime.toInt(DurationUnit.SECONDS) != duration.toInt(DurationUnit.SECONDS)) {
-                    timeText = duration.toFormattedString()
-                    // save game
-                    if (gameBoard.any { it.any { cell -> cell.value != 0 } }) {
-                        viewModelScope.launch(Dispatchers.IO) {
-                            saveGame()
-                        }
-                    }
                 }
             }
         }
@@ -581,132 +664,172 @@ class GameViewModel @Inject constructor(
 
     fun pauseTimer() {
         gamePlaying = false
-        timer.cancel()
+        timer?.cancel()
+        timer = null
     }
 
+    // ---- toolbar ----
     fun toolbarClick(item: ToolBarItem) {
-        if (gamePlaying) {
-            when (item) {
-                ToolBarItem.Undo -> {
-                    if (undoRedoManager.canUndo()) {
-                        undoRedoManager.undo().also {
-                            gameBoard = it.board
-                            notes = it.notes
-                        }
-                        checkMistakesAll()
+        if (!ready()) return
+        if (!gamePlaying) return
+
+        when (item) {
+            ToolBarItem.Undo -> {
+                if (undoRedoManager.canUndo()) {
+                    undoRedoManager.undo().also {
+                        gameBoard = it.board
+                        notes = it.notes
                     }
-                    remainingUsesList = countRemainingUses(gameBoard)
+                    checkMistakesAll()
                 }
+                remainingUsesList = countRemainingUses(gameBoard)
+            }
 
-                ToolBarItem.Redo -> {
-                    if (undoRedoManager.canRedo()) {
-                        undoRedoManager.redo()?.let {
-                            gameBoard = it.board
-                            notes = it.notes
-                        }
-                        checkMistakesAll()
+            ToolBarItem.Redo -> {
+                if (undoRedoManager.canRedo()) {
+                    undoRedoManager.redo()?.let {
+                        gameBoard = it.board
+                        notes = it.notes
                     }
-                    remainingUsesList = countRemainingUses(gameBoard)
+                    checkMistakesAll()
                 }
+                remainingUsesList = countRemainingUses(gameBoard)
+            }
 
-                ToolBarItem.Hint -> {
-                    useHint()
+            ToolBarItem.Hint -> useHint()
+
+            ToolBarItem.Note -> {
+                notesToggled = !notesToggled
+                eraseButtonToggled = false
+            }
+
+            ToolBarItem.Remove -> {
+                if (inputMethod.value == 1 || eraseButtonToggled) {
+                    toggleEraseButton()
+                    return
                 }
-
-                ToolBarItem.Note -> {
-                    notesToggled = !notesToggled
-                    eraseButtonToggled = false
-                }
-
-                ToolBarItem.Remove -> {
-                    if (inputMethod.value == 1 || eraseButtonToggled) {
-                        toggleEraseButton()
-                        return
-                    }
-                    if (currCell.row >= 0 && currCell.col >= 0 && !currCell.locked) {
-                        val prevValue = gameBoard[currCell.row][currCell.col].value
-                        val notesInCell =
-                            notes.count { note -> note.row == currCell.row && note.col == currCell.col }
-                        notes = clearNotesAtCell(notes)
-                        gameBoard = setValueCell(0)
-                        if (prevValue != 0 || notesInCell != 0) {
-                            undoRedoManager.addState(GameState(gameBoard, notes))
-                        }
+                if (currCell.row >= 0 && currCell.col >= 0 && !currCell.locked) {
+                    val prevValue = gameBoard[currCell.row][currCell.col].value
+                    val notesInCell = notes.count { it.row == currCell.row && it.col == currCell.col }
+                    notes = clearNotesAtCell(notes)
+                    gameBoard = setValueCell(0)
+                    if (prevValue != 0 || notesInCell != 0) {
+                        undoRedoManager.addState(GameState(gameBoard, notes))
                     }
                 }
             }
         }
     }
 
+    // ---- hint ----
     private fun useHint() {
-        // block if hint limit reached
+        if (!ready()) return
+
         if (hintsUsed >= effectiveHintLimit) {
-            _extraHintDialog.value = true   // ask to watch ad
+            _extraHintDialog.value = true
             return
         }
 
-        if (solvedBoard.isEmpty()) solveBoard()
-        if (currCell.row >= 0 && currCell.col >= 0 && !currCell.locked) {
-            notes = clearNotesAtCell(notes, currCell.row, currCell.col)
-            gameBoard = setValueCell(solvedBoard[currCell.row][currCell.col].value)
+        if (solvedBoard.isEmpty()) solveBoardSafe()
+        if (solvedBoard.isEmpty()) return
 
-            val new = getBoardNoRef()
-            new[currCell.row][currCell.col].error = false
-            gameBoard = new
+        val targetCell =
+            if (currCell.row >= 0 && currCell.col >= 0 && !currCell.locked && currCell.value == 0) {
+                currCell
+            } else {
+                findFirstHintableCell(gameBoard)
+            } ?: return
 
-            duration = duration.plus(30.toDuration(DurationUnit.SECONDS))
-            timeText = duration.toFormattedString()
-            undoRedoManager.addState(GameState(gameBoard, notes))
-            hintsUsed++
-        }
+        currCell = gameBoard[targetCell.row][targetCell.col]
+        notes = clearNotesAtCell(notes, targetCell.row, targetCell.col)
+
+        gameBoard = setValueCell(
+            value = solvedBoard[targetCell.row][targetCell.col].value,
+            row = targetCell.row,
+            col = targetCell.col
+        )
+
+        val new = getBoardNoRef()
+        new[targetCell.row][targetCell.col].error = false
+        gameBoard = new
+
+        duration = duration.plus(30.toDuration(DurationUnit.SECONDS))
+        timeText = duration.toFormattedString()
+        undoRedoManager.addState(GameState(gameBoard, notes))
+        hintsUsed++
     }
 
+    private fun findFirstHintableCell(board: List<List<Cell>>): Cell? {
+        for (r in board.indices) {
+            for (c in board[r].indices) {
+                val cell = board[r][c]
+                if (!cell.locked && cell.value == 0) return cell
+            }
+        }
+        return null
+    }
+
+    // ---- reset ----
     fun resetGame(resetTimer: Boolean) {
-        // stop and reset game
+        if (!ready()) return
+
+        // ✅ clear trackers
+        completedRows.clear()
+        completedCols.clear()
+        completedBoxes.clear()
+
         notes = emptyNotes()
         currCell = Cell(-1, -1, 0)
+
         if (resetTimer) {
             duration = Duration.ZERO
             timeText = duration.toFormattedString()
         }
+
         digitFirstNumber = 0
         notesToggled = false
         undoRedoManager.clear()
 
-        // init a new game with initial board
-        gameBoard = initialBoard.map { items -> items.map { item -> item.copy() } }
-
+        val init = initialBoard ?: return
+        gameBoard = init.map { row -> row.map { it.copy() } }
         remainingUsesList = countRemainingUses(gameBoard)
 
-
+        // ✅ existing
         mistakesMade = 0
         notesTaken = 0
+
+        // 🔥 ADD THESE (CRITICAL)
+        endGame = false
+        gamePlaying = true
+        showSolution = false
+        gameCompleted = false   // if you are using this flag
     }
 
-    private fun isValidCell(
-        board: List<List<Cell>> = getBoardNoRef(),
-        cell: Cell
-    ): List<List<Cell>> {
+    // ---- validation ----
+    private fun isValidCell(board: List<List<Cell>> = getBoardNoRef(), cell: Cell): List<List<Cell>> {
         if (solvedBoard.isNotEmpty()) {
             board[cell.row][cell.col].error =
                 solvedBoard[cell.row][cell.col].value != board[cell.row][cell.col].value
         } else {
-            solveBoard()
+            solveBoardSafe()
         }
         return board
     }
 
     private fun isCompleted(board: List<List<Cell>> = getBoardNoRef()): Boolean {
-        if (solvedBoard.isEmpty()) solveBoard()
+        if (!ready()) return false
+        if (solvedBoard.isEmpty()) solveBoardSafe()
+        if (solvedBoard.isEmpty()) return false
+
         for (i in solvedBoard.indices) {
             for (j in solvedBoard.indices) {
-                if (solvedBoard[i][j].value != board[i][j].value) {
-                    return false
-                }
+                if (solvedBoard[i][j].value != board[i][j].value) return false
             }
         }
+
+        val entity = boardEntity ?: return true
         viewModelScope.launch(Dispatchers.IO) {
-            val savedGame = savedGameRepository.get(boardEntity.uid)
+            val savedGame = savedGameRepository.get(entity.uid)
             if (savedGame != null) {
                 savedGameRepository.update(
                     savedGame.copy(
@@ -722,20 +845,24 @@ class GameViewModel @Inject constructor(
     }
 
     fun computeNotes() {
-        notes = sudokuUtils.computeNotes(gameBoard, boardEntity.type)
+        if (!ready()) return
+        val entity = boardEntity ?: return
+        notes = sudokuUtils.computeNotes(gameBoard, entity.type)
         undoRedoManager.addState(GameState(gameBoard, notes))
     }
 
-    private fun autoEraseNotes(board: List<List<Cell>> = getBoardNoRef(), cell: Cell): List<Note> {
-        if (currCell.row < 0 || currCell.col < 0) {
-            return notes
-        }
-        return sudokuUtils.autoEraseNotes(board, notes, cell, boardEntity.type)
+    private fun autoEraseNotesSafe(board: List<List<Cell>> = getBoardNoRef(), cell: Cell): List<Note> {
+        val entity = boardEntity ?: return notes
+        if (currCell.row < 0 || currCell.col < 0) return notes
+        return sudokuUtils.autoEraseNotes(board, notes, cell, entity.type)
     }
 
-    private suspend fun saveGame() {
-        val savedGame = savedGameRepository.get(boardEntity.uid)
+    private suspend fun saveGameSafe() {
+        if (gameCompleted || endGame) return
+        val entity = boardEntity ?: return
         val sudokuParser = SudokuParser()
+        val savedGame = savedGameRepository.get(entity.uid)
+
         if (savedGame != null) {
             savedGameRepository.update(
                 savedGame.copy(
@@ -749,7 +876,7 @@ class GameViewModel @Inject constructor(
         } else {
             savedGameRepository.insert(
                 SavedGame(
-                    uid = boardEntity.uid,
+                    uid = entity.uid,
                     currentBoard = sudokuParser.boardToString(gameBoard),
                     notes = sudokuParser.notesToString(notes),
                     timer = java.time.Duration.ofSeconds(duration.inWholeSeconds),
@@ -761,36 +888,33 @@ class GameViewModel @Inject constructor(
         }
     }
 
-    private fun restoreSavedGame(savedGame: SavedGame?) {
-        if (savedGame != null) {
-            // restore timer and text
-            duration = savedGame.timer.toKotlinDuration()
-            timeText = duration.toFormattedString()
+    private fun restoreSavedGameSafe(savedGame: SavedGame?) {
+        val entity = boardEntity ?: return
+        val init = initialBoard ?: return
+        if (savedGame == null) return
+        if (savedGame.currentBoard.isBlank()) return
 
-            mistakesCount = savedGame.mistakes
-            val sudokuParser = SudokuParser()
-            gameBoard = sudokuParser.parseBoard(
-                savedGame.currentBoard,
-                boardEntity.type
-            )
-            notes = sudokuParser.parseNotes(savedGame.notes)
+        duration = savedGame.timer.toKotlinDuration()
+        timeText = duration.toFormattedString()
 
-            for (i in gameBoard.indices) {
-                for (j in gameBoard.indices) {
-                    gameBoard[i][j].locked = initialBoard[i][j].locked
+        mistakesCount = savedGame.mistakes
+        val sudokuParser = SudokuParser()
 
-                    if (gameBoard[i][j].value != 0 && !gameBoard[i][j].locked) {
-                        if (mistakesMethod.value == 1) {
-                            gameBoard[i][j].error =
-                                !sudokuUtils.isValidCellDynamic(
-                                    board = gameBoard,
-                                    cell = gameBoard[i][j],
-                                    type = boardEntity.type
-                                )
-                        } else {
-                            gameBoard[i][j].error =
-                                isValidCell(gameBoard, gameBoard[i][j])[i][j].error
-                        }
+        gameBoard = sudokuParser.parseBoard(savedGame.currentBoard, entity.type)
+        notes = sudokuParser.parseNotes(savedGame.notes)
+
+        for (i in gameBoard.indices) {
+            for (j in gameBoard.indices) {
+                gameBoard[i][j].locked = init[i][j].locked
+                if (gameBoard[i][j].value != 0 && !gameBoard[i][j].locked) {
+                    if (mistakesMethod.value == 1) {
+                        gameBoard[i][j].error = !sudokuUtils.isValidCellDynamic(
+                            board = gameBoard,
+                            cell = gameBoard[i][j],
+                            type = entity.type
+                        )
+                    } else {
+                        gameBoard[i][j].error = isValidCell(gameBoard, gameBoard[i][j])[i][j].error
                     }
                 }
             }
@@ -798,11 +922,15 @@ class GameViewModel @Inject constructor(
     }
 
     fun giveUp() {
+        if (!ready()) return
+        val entity = boardEntity ?: return
+
         giveUp = true
         endGame = true
         currCell = Cell(-1, -1, 0)
+
         viewModelScope.launch(Dispatchers.IO) {
-            val savedGame = savedGameRepository.get(boardEntity.uid)
+            val savedGame = savedGameRepository.get(entity.uid)
             if (savedGame != null) {
                 val sudokuParser = SudokuParser()
                 savedGameRepository.update(
@@ -821,18 +949,20 @@ class GameViewModel @Inject constructor(
     }
 
     fun onGameComplete() {
+        if (!ready()) return
         if (endGame) return
+        val entity = boardEntity ?: return
 
         pauseTimer()
         currCell = Cell(-1, -1, 0)
 
         viewModelScope.launch(Dispatchers.IO) {
-            saveGame()
+
             recordRepository.insert(
                 Record(
-                    board_uid = boardEntity.uid,
-                    type = boardEntity.type,
-                    difficulty = boardEntity.difficulty,
+                    board_uid = entity.uid,
+                    type = entity.type,
+                    difficulty = entity.difficulty,
                     date = ZonedDateTime.now(),
                     time = duration.toJavaDuration()
                 )
@@ -840,9 +970,8 @@ class GameViewModel @Inject constructor(
         }
 
         endGame = true
-        gameCompleted = true   // ⭐ THIS IS THE MISSING PART
+        gameCompleted = true
     }
-
 
     fun getFontSize(type: GameType = gameType, factor: Int): TextUnit {
         return sudokuUtils.getFontSize(type, factor)
@@ -861,81 +990,71 @@ class GameViewModel @Inject constructor(
         eraseButtonToggled = !eraseButtonToggled
     }
 
-    // to make sure that solvedBoard really contains a solved board
-    private fun solveBoard() {
-        val qqWing = QQWingController()
-        val boardToSolve = boardEntity.initialBoard.map { it.digitToInt(13) }.toIntArray()
-        val solved = qqWing.solve(boardToSolve, boardEntity.type)
+    private fun solveBoardSafe() {
+        val entity = boardEntity ?: return
+        val init = initialBoard ?: return
 
-        val newSolvedBoard = List(boardEntity.type.size) { row ->
-            List(boardEntity.type.size) { col ->
-                Cell(
-                    row,
-                    col,
-                    0
-                )
-            }
+        val qqWing = QQWingController()
+        val boardToSolve = entity.initialBoard.map { it.digitToInt(13) }.toIntArray()
+        val solved = qqWing.solve(boardToSolve, entity.type)
+
+        val newSolvedBoard = List(entity.type.size) { row ->
+            List(entity.type.size) { col -> Cell(row, col, 0) }
         }
-        for (i in 0 until size) {
-            for (j in 0 until size) {
-                newSolvedBoard[i][j].value = solved[i * size + j]
+
+        val localSize = entity.type.size
+        for (i in 0 until localSize) {
+            for (j in 0 until localSize) {
+                newSolvedBoard[i][j].value = solved[i * localSize + j]
             }
         }
 
         viewModelScope.launch(Dispatchers.IO) {
             val sudokuParser = SudokuParser()
-            updateBoardUseCase(
-                boardEntity.copy(solvedBoard = sudokuParser.boardToString(newSolvedBoard))
-            )
+            updateBoardUseCase(entity.copy(solvedBoard = sudokuParser.boardToString(newSolvedBoard)))
         }
+
         solvedBoard = newSolvedBoard
 
         for (i in solvedBoard.indices) {
             for (j in solvedBoard.indices) {
-                solvedBoard[i][j].locked = initialBoard[i][j].locked
+                solvedBoard[i][j].locked = init[i][j].locked
             }
         }
     }
 
     fun checkMistakesAll() {
+        if (!ready()) return
+
         var new = getBoardNoRef()
-
-        if (!this::initialBoard.isInitialized) return
-
         for (i in new.indices) {
             for (j in new.indices) {
                 if (new[i][j].value != 0 && !new[i][j].locked) {
                     when (mistakesMethod.value) {
-                        0 -> {
-                            // mistake checking is off
-                            new[i][j].error = false
-                        }
-                        else -> {
-                            // ALWAYS check against final solution
-                            new = isValidCell(new, new[i][j])
-                        }
+                        0 -> new[i][j].error = false
+                        else -> new = isValidCell(new, new[i][j])
                     }
                 }
             }
         }
-
         gameBoard = new
     }
 
-
     fun getAdvancedHint() {
+        if (!ready()) return
+        val entity = boardEntity ?: return
+
         viewModelScope.launch(Dispatchers.Default) {
             currCell = Cell(-1, -1, 0)
             _advancedHintMode.emit(true)
             val hintSettings = runBlocking { appSettingsManager.advancedHintSettings.first() }
             val advancedHint = AdvancedHint(
-                type = boardEntity.type,
+                type = entity.type,
                 board = gameBoard,
                 solvedBoard = solvedBoard,
                 notes = notes,
                 settings = hintSettings
             )
-
             _advancedHintData.emit(advancedHint.getEasiestHint())
         }
     }
@@ -948,6 +1067,7 @@ class GameViewModel @Inject constructor(
     }
 
     fun applyAdvancedHint() {
+        if (!ready()) return
         viewModelScope.launch(Dispatchers.Default) {
             val cell = _advancedHintData.value?.targetCell
             if (cell != null) {
@@ -958,5 +1078,6 @@ class GameViewModel @Inject constructor(
             }
         }
     }
+
 
 }

@@ -157,7 +157,7 @@ fun DrawScope.drawNumbers(
                 canvas.nativeCanvas.drawText(
                     textToDraw,
                     cell.col * cellSize + (cellSize - textWidth) / 2f,
-                    cell.row * cellSize + (cellSize + localBounds.height()) / 2f,
+                    cell.row * cellSize + (cellSize / 2f) - ((paint.descent() + paint.ascent()) / 2f),
                     paint
                 )
             }

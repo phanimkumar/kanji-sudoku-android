@@ -2,6 +2,7 @@
 <resources>
     <string name="app_name" translatable="false">Kanji Sudoku</string>
     <string name="nav_bar_statistics">Statistics</string>
+    <string name="game_services_project_id">314440331450</string>
     <string name="nav_bar_home">Home</string>
     <string name="nav_bar_more">More</string>
     <string name="new_game">New game</string>
