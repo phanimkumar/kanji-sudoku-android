@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
+import com.kaajjo.libresudoku.core.qqwing.DailyPuzzleGenerator
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
@@ -61,7 +62,7 @@ class HomeViewModel @Inject constructor(
 
     val lastSelectedGameDifficultyType = appSettingsManager.lastSelectedGameDifficultyType
     val saveSelectedGameDifficultyType = appSettingsManager.saveSelectedGameDifficultyType
-
+    val kanjiTheme = appSettingsManager.kanjiTheme
     var selectedDifficulty by mutableStateOf(difficulties.first())
     var selectedType by mutableStateOf(types.first())
 
@@ -192,6 +193,54 @@ class HomeViewModel @Inject constructor(
                 if (!readyToPlay) isStartingGame = false
             } catch (t: Throwable) {
                 d { "startGame FAILED: ${t.message}" }
+                isGenerating = false
+                isSolving = false
+                readyToPlay = false
+                insertedBoardUid = -1L
+                isStartingGame = false
+            }
+        }
+    }
+
+    fun startDailyGame() {
+        if (isStartingGame) return
+
+        readyToPlay = false
+        insertedBoardUid = -1L
+        isStartingGame = true
+        isGenerating = true
+        isSolving = false
+
+        viewModelScope.launch {
+            try {
+                val daily = withContext(Dispatchers.Default) {
+                    DailyPuzzleGenerator.generateTodayPuzzle(
+                        difficulty = GameDifficulty.Easy,
+                        type = GameType.Default9x9
+                    )
+                }
+
+                isGenerating = false
+
+                val uid = withContext(Dispatchers.IO) {
+                    boardRepository.insert(
+                        SudokuBoard(
+                            uid = 0,
+                            initialBoard = daily.initialBoard,
+                            solvedBoard = daily.solvedBoard,
+                            difficulty = daily.difficulty,
+                            type = daily.type,
+                            killerCages = null
+                        )
+                    )
+                }
+
+                insertedBoardUid = uid
+                readyToPlay = uid > 0L
+
+                if (!readyToPlay) isStartingGame = false
+            } catch (t: Throwable) {
+                d { "startDailyGame FAILED: ${t.message}" }
                 isGenerating = false
                 isSolving = false
                 readyToPlay = false

@@ -202,7 +202,7 @@ class QQWing(type: GameType, difficulty: GameDifficulty) {
             else -> if (getHiddenSingleCount() > 10) return GameDifficulty.Moderate
         }
         when (gameType) {
-            GameType.Default6x6 -> if (getSingleCount() > 10) return GameDifficulty.Easy
+            GameType.Default6x6 -> if (getSingleCount() > 6) return GameDifficulty.Easy
             GameType.Default9x9 -> if (getSingleCount() > 35) return GameDifficulty.Easy
             GameType.Default12x12 -> if (getSingleCount() > 50) return GameDifficulty.Easy
             else -> if (getSingleCount() > 20) return GameDifficulty.Easy

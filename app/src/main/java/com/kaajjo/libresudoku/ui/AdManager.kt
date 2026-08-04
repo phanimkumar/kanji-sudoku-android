@@ -41,6 +41,8 @@ object AdManager {
                 override fun onAdDismissedFullScreenContent() {
                     interstitialAd = null
                     Log.d("AdDebug", "Interstitial dismissed")
+
+                    loadInterstitial(activity)
                     onDone()
                 }
 
@@ -57,6 +59,7 @@ object AdManager {
 
         } else {
             Log.d("AdDebug", "Interstitial NULL")
+            loadInterstitial(activity)
             onDone()
         }
     }

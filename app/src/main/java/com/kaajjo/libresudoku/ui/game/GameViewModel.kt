@@ -55,6 +55,7 @@ import kotlin.time.DurationUnit
 import kotlin.time.toDuration
 import kotlin.time.toJavaDuration
 import kotlin.time.toKotlinDuration
+import kotlinx.coroutines.delay
 
 @HiltViewModel
 class GameViewModel @Inject constructor(
@@ -76,7 +77,7 @@ class GameViewModel @Inject constructor(
     // ---- HARD LIMITS & AD EXTRAS ----
     private var extraLivesFromAds = 0
     private var extraHintsFromAds = 0
-
+    val kanjiTheme = appSettingsManager.kanjiTheme
     val effectiveMistakeLimit: Int
         get() = HARD_MISTAKE_LIMIT + extraLivesFromAds
 
@@ -94,8 +95,14 @@ class GameViewModel @Inject constructor(
     private val _sectionCompleteEvent = MutableStateFlow(0)
     val sectionCompleteEvent = _sectionCompleteEvent.asStateFlow()
 
-    private fun notifySectionComplete() {
+    private fun notifySectionComplete(cells: List<Cell>) {
+        _cellsToHighlight.value = cells.distinctBy { "${it.row}-${it.col}" }
         _sectionCompleteEvent.value = _sectionCompleteEvent.value + 1
+
+        viewModelScope.launch {
+            delay(650)
+            _cellsToHighlight.value = emptyList()
+        }
     }
 
     // ✅ Trackers for one-time haptic per section
@@ -533,16 +540,16 @@ class GameViewModel @Inject constructor(
         // ✅ One-time haptic per completed section
         // ✅ One haptic event per move (avoid 2–3 rapid events being collapsed)
         if (value != 0) {
-            var didComplete = false
+            val completedCells = mutableListOf<Cell>()
 
             if (row !in completedRows && isRowCorrect(new, row)) {
                 completedRows.add(row)
-                didComplete = true
+                completedCells.addAll(new[row])
             }
 
             if (col !in completedCols && isColCorrect(new, col)) {
                 completedCols.add(col)
-                didComplete = true
+                for (r in new.indices) completedCells.add(new[r][col])
             }
 
             val boxH = getSectionHeightForSize(new.size)
@@ -551,10 +558,20 @@ class GameViewModel @Inject constructor(
 
             if (boxKey !in completedBoxes && isBoxCorrect(new, row, col)) {
                 completedBoxes.add(boxKey)
-                didComplete = true
+
+                val startRow = (row / boxH) * boxH
+                val startCol = (col / boxW) * boxW
+
+                for (r in startRow until startRow + boxH) {
+                    for (c in startCol until startCol + boxW) {
+                        completedCells.add(new[r][c])
+                    }
+                }
             }
 
-            if (didComplete) notifySectionComplete()
+            if (completedCells.isNotEmpty()) {
+                notifySectionComplete(completedCells)
+            }
         }
 
 

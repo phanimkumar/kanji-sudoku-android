@@ -67,6 +67,7 @@ import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeFormatterBuilder
 import java.time.format.FormatStyle
 import java.util.Locale
+import com.kaajjo.libresudoku.ui.theme.KanjiThemeType
 
 @Destination(style = AnimatedNavigation::class)
 @OptIn(ExperimentalStdlibApi::class)
@@ -82,7 +83,7 @@ fun SettingsAppearanceScreen(
     var customFormatDialog by rememberSaveable { mutableStateOf(false) }
     var paletteStyleDialog by rememberSaveable { mutableStateOf(false) }
     var colorPickerDialog by rememberSaveable { mutableStateOf(false) }
-
+    var kanjiThemeDialog by rememberSaveable { mutableStateOf(false) }
     val darkTheme by viewModel.darkTheme.collectAsStateWithLifecycle(initialValue = PreferencesConstants.DEFAULT_DARK_THEME)
     val dateFormat by viewModel.dateFormat.collectAsStateWithLifecycle(initialValue = "")
     val dynamicColors by viewModel.dynamicColors.collectAsStateWithLifecycle(initialValue = PreferencesConstants.DEFAULT_DYNAMIC_COLORS)
@@ -96,6 +97,10 @@ fun SettingsAppearanceScreen(
     )
     val isUserDefinedSeedColor by viewModel.isUserDefinedSeedColor.collectAsStateWithLifecycle(
         initialValue = false
+    )
+
+    val kanjiTheme by viewModel.kanjiTheme.collectAsStateWithLifecycle(
+        initialValue = KanjiThemeType.JapanesePaper
     )
 
     SettingsScaffoldLazyColumn(
@@ -119,6 +124,9 @@ fun SettingsAppearanceScreen(
                     onClick = { darkModeDialog = true },
                     painter = rememberVectorPainter(Icons.Outlined.DarkMode)
                 )
+
+
+
             }
 
             item {
@@ -272,6 +280,23 @@ fun SettingsAppearanceScreen(
                     painter = rememberVectorPainter(Icons.Outlined.Tag)
                 )
             }
+
+            item {
+                PreferenceRow(
+                    title = "Kanji Theme",
+                    subtitle = when (kanjiTheme) {
+                        KanjiThemeType.JapanesePaper -> "Japanese Paper"
+                        KanjiThemeType.Sakura -> "Sakura"
+                        KanjiThemeType.Bamboo -> "Bamboo"
+                        KanjiThemeType.DarkSamurai -> "Dark Samurai"
+                    },
+                    onClick = {
+                        kanjiThemeDialog = true
+                    },
+                    painter = rememberVectorPainter(Icons.Outlined.Palette)
+                )
+            }
+
             item {
                 PreferenceRow(
                     title = stringResource(R.string.pref_date_format),
@@ -362,7 +387,37 @@ fun SettingsAppearanceScreen(
             },
             onDismiss = { paletteStyleDialog = false }
         )
-    } else if (colorPickerDialog) {
+    } else if (kanjiThemeDialog) {
+    SelectionDialog(
+        title = "Kanji Theme",
+        selections = listOf(
+            "Japanese Paper",
+            "Sakura",
+            "Bamboo",
+            "Dark Samurai"
+        ),
+        selected = when (kanjiTheme) {
+            KanjiThemeType.JapanesePaper -> 0
+            KanjiThemeType.Sakura -> 1
+            KanjiThemeType.Bamboo -> 2
+            KanjiThemeType.DarkSamurai -> 3
+        },
+        onSelect = { index ->
+            val theme = when (index) {
+                1 -> KanjiThemeType.Sakura
+                2 -> KanjiThemeType.Bamboo
+                3 -> KanjiThemeType.DarkSamurai
+                else -> KanjiThemeType.JapanesePaper
+            }
+
+            viewModel.updateKanjiTheme(theme)
+            kanjiThemeDialog = false
+        },
+        onDismiss = {
+            kanjiThemeDialog = false
+        }
+    )
+    }    else if (colorPickerDialog) {
         val clipboardManager = LocalClipboardManager.current
         var currentColor by remember {
             mutableIntStateOf(currentSeedColor.toArgb())

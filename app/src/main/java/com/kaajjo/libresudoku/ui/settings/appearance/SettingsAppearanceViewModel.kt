@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kaajjo.libresudoku.data.datastore.AppSettingsManager
 import com.kaajjo.libresudoku.data.datastore.ThemeSettingsManager
+import com.kaajjo.libresudoku.ui.theme.KanjiThemeType
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -16,6 +17,7 @@ class SettingsAppearanceViewModel @Inject constructor(
     private val themeSettings: ThemeSettingsManager,
     private val settings: AppSettingsManager
 ) : ViewModel() {
+
     val darkTheme by lazy {
         themeSettings.darkTheme
     }
@@ -44,29 +46,51 @@ class SettingsAppearanceViewModel @Inject constructor(
         }
 
     val dateFormat = settings.dateFormat
+
     fun updateDateFormat(format: String) {
         viewModelScope.launch(Dispatchers.IO) {
             settings.setDateFormat(format)
         }
     }
 
-    val paletteStyle by lazy { themeSettings.themePaletteStyle }
+    val paletteStyle by lazy {
+        themeSettings.themePaletteStyle
+    }
+
     fun updatePaletteStyle(index: Int) =
         viewModelScope.launch(Dispatchers.IO) {
-            themeSettings.setPaletteStyle(ThemeSettingsManager.paletteStyles[index].first)
+            themeSettings.setPaletteStyle(
+                ThemeSettingsManager.paletteStyles[index].first
+            )
         }
 
-    val isUserDefinedSeedColor by lazy { themeSettings.isUserDefinedSeedColor }
+    val isUserDefinedSeedColor by lazy {
+        themeSettings.isUserDefinedSeedColor
+    }
+
     fun updateIsUserDefinedSeedColor(value: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
             themeSettings.setIsUserDefinedSeedColor(value)
         }
     }
 
-    val seedColor by lazy { themeSettings.themeColorSeed }
+    val seedColor by lazy {
+        themeSettings.themeColorSeed
+    }
+
     fun updateCurrentSeedColor(seedColor: Color) {
         viewModelScope.launch(Dispatchers.IO) {
             themeSettings.setCurrentThemeColor(seedColor)
+        }
+    }
+
+    val kanjiTheme by lazy {
+        settings.kanjiTheme
+    }
+
+    fun updateKanjiTheme(theme: KanjiThemeType) {
+        viewModelScope.launch(Dispatchers.IO) {
+            settings.setKanjiTheme(theme)
         }
     }
 

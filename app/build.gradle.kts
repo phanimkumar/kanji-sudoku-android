@@ -11,14 +11,14 @@ plugins {
 
 android {
     namespace = "com.kaajjo.libresudoku"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.swayamkrushi.kanjisudoku"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 52
-        versionName = "3.5.2"
+        targetSdk = 36
+        versionCode = 59
+        versionName = "3.5.9"
 
         vectorDrawables {
             useSupportLibrary = true

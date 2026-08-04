@@ -24,12 +24,13 @@ import java.time.format.DateTimeFormatterBuilder
 import java.time.format.FormatStyle
 import java.util.Locale
 import javax.inject.Singleton
+import com.kaajjo.libresudoku.ui.theme.KanjiThemeType
 
 @Singleton
 class AppSettingsManager(context: Context) {
     private val Context.createDataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
     private val dataStore = context.createDataStore
-
+    private val kanjiThemeKey = intPreferencesKey("kanji_theme")
     // first app launch
     private val firstLaunchKey = booleanPreferencesKey("first_launch")
 
@@ -454,7 +455,25 @@ class AppSettingsManager(context: Context) {
             settings[updateDismissedNameKey] = name
         }
     }
+    val kanjiTheme = dataStore.data.map { preferences ->
+        when (preferences[kanjiThemeKey] ?: 0) {
+            1 -> KanjiThemeType.Sakura
+            2 -> KanjiThemeType.Bamboo
+            3 -> KanjiThemeType.DarkSamurai
+            else -> KanjiThemeType.JapanesePaper
+        }
+    }
 
+    suspend fun setKanjiTheme(theme: KanjiThemeType) {
+        dataStore.edit { preferences ->
+            preferences[kanjiThemeKey] = when (theme) {
+                KanjiThemeType.JapanesePaper -> 0
+                KanjiThemeType.Sakura -> 1
+                KanjiThemeType.Bamboo -> 2
+                KanjiThemeType.DarkSamurai -> 3
+            }
+        }
+    }
     companion object {
         fun dateFormat(format: String): DateTimeFormatter = when (format) {
             "" -> {

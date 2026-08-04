@@ -7,6 +7,7 @@ import com.kaajjo.libresudoku.ui.theme.KanjiRowColHighlight
 import com.kaajjo.libresudoku.ui.theme.KanjiSameSymbolHighlight
 import com.kaajjo.libresudoku.ui.theme.KanjiSubgridBorder
 import com.kaajjo.libresudoku.ui.theme.KanjiCellBorder
+import com.kaajjo.libresudoku.ui.theme.KanjiThemeColors
 import android.graphics.Paint
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -90,7 +91,8 @@ fun Board(
     boardColors: SudokuBoardColors = LocalBoardColors.current,
     crossHighlight: Boolean = false,
     cages: List<Cage> = emptyList(),
-    selectedNumberForHighlight: Int = 0, // ✅ added
+    selectedNumberForHighlight: Int = 0,
+    kanjiTheme: KanjiThemeColors? = null,
 )
 {
     BoxWithConstraints(
@@ -106,14 +108,23 @@ fun Board(
 
         val errorColor = boardColors.errorColor
         val highlightColor = boardColors.highlightColor
-        val outerFrameColor = KanjiOuterBorder
-        val thinLineColor = Color(0xFF94A3B8).copy(alpha = 0.7f)
-        val thickLineColor = Color(0xFF334155)
-        val notesColor = boardColors.notesColor
+        val boardBackgroundColor = kanjiTheme?.boardBackground ?: Color(0xFFF1F5F9)
+        val outerFrameColor = kanjiTheme?.boardBorder ?: KanjiOuterBorder
+        val thinLineColor = kanjiTheme?.boardBorder?.copy(alpha = 0.30f)
+            ?: Color(0xFF94A3B8).copy(alpha = 0.7f)
+        val thickLineColor = kanjiTheme?.boardBorder?.copy(alpha = 0.78f)
+            ?: Color(0xFF334155)
+        val notesColor = kanjiTheme?.secondaryText ?: boardColors.notesColor
 
-        val selectedCellColor = KanjiSelectedCell
-        val rowColHighlightColor = KanjiRowColHighlight
-        val sameSymbolHighlightColor = KanjiSameSymbolHighlight
+        val lockedTextColor = kanjiTheme?.primaryText ?: Color(0xFF8B0000)
+        val enteredTextColor = kanjiTheme?.accent ?: Color(0xFF8B0000)
+
+        val selectedCellColor = kanjiTheme?.accent?.copy(alpha = 0.34f)
+            ?: KanjiSelectedCell
+        val rowColHighlightColor = kanjiTheme?.accent?.copy(alpha = 0.11f)
+            ?: KanjiRowColHighlight
+        val sameSymbolHighlightColor = kanjiTheme?.accent?.copy(alpha = 0.20f)
+            ?: KanjiSameSymbolHighlight
 
         val vertThick by remember(size) { mutableIntStateOf(floor(sqrt(size.toFloat())).toInt()) }
         val horThick by remember(size) { mutableIntStateOf(ceil(sqrt(size.toFloat())).toInt()) }
@@ -140,7 +151,7 @@ fun Board(
         var textPaint by remember(fontSizePx) {
             mutableStateOf(
                 Paint().apply {
-                    color = Color(0xFF8B0000).toArgb()
+                    color = enteredTextColor.toArgb()
                     isAntiAlias = true
                     textSize = fontSizePx
                     isFakeBoldText = true
@@ -164,7 +175,7 @@ fun Board(
         var lockedTextPaint by remember {
             mutableStateOf(
                 Paint().apply {
-                    color = Color(0xFF8B0000).toArgb()
+                    color = lockedTextColor.toArgb()
                     isAntiAlias = true
                     textSize = fontSizePx
                     isFakeBoldText = true
@@ -201,9 +212,9 @@ fun Board(
             )
         }
 
-        LaunchedEffect(mainTextSize, noteTextSize, boardColors) {
+        LaunchedEffect(mainTextSize, noteTextSize, boardColors, kanjiTheme) {
             textPaint = Paint().apply {
-                color = Color(0xFF8B0000).toArgb()
+                color = enteredTextColor.toArgb()
                 isAntiAlias = true
                 textSize = fontSizePx
                 isFakeBoldText = true
@@ -222,7 +233,7 @@ fun Board(
                 isFakeBoldText = true
             }
             lockedTextPaint = Paint().apply {
-                color = Color(0xFF8B0000).toArgb()
+                color = lockedTextColor.toArgb()
                 isAntiAlias = true
                 textSize = fontSizePx
                 isFakeBoldText = true
@@ -302,13 +313,52 @@ fun Board(
             modifier = if (zoomable) boardModifier.then(zoomModifier) else boardModifier
         ) {
             drawRect(
-                color = Color(0xFFF1F5F9),
+                color = boardBackgroundColor,
                 size = this.size
             )
 
             val cornerRadius = CornerRadius(15f, 15f)
+            val hasSelection = selectedCell.row >= 0 && selectedCell.col >= 0
 
-            if (selectedCell.row >= 0 && selectedCell.col >= 0) {
+            // 1. Row and column highlight: weakest layer.
+            if (hasSelection && positionLines) {
+                drawPositionLines(
+                    row = selectedCell.row,
+                    col = selectedCell.col,
+                    gameSize = size,
+                    color = rowColHighlightColor,
+                    cellSize = cellSize,
+                    lineLength = maxWidth,
+                    cornerRadius = cornerRadius
+                )
+            }
+
+            // 2. Same-symbol highlight.
+            if (identicalNumbersHighlight && selectedNumberForHighlight > 0) {
+                for (i in 0 until size) {
+                    for (j in 0 until size) {
+                        if (board[i][j].value == selectedNumberForHighlight) {
+                            drawRoundCell(
+                                row = i,
+                                col = j,
+                                gameSize = size,
+                                rect = Rect(
+                                    offset = Offset(
+                                        x = j * cellSize,
+                                        y = i * cellSize
+                                    ),
+                                    size = Size(cellSize, cellSize)
+                                ),
+                                color = sameSymbolHighlightColor,
+                                cornerRadius = cornerRadius
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 3. Selected cell: strongest layer.
+            if (hasSelection) {
                 drawRoundCell(
                     row = selectedCell.row,
                     col = selectedCell.col,
@@ -323,97 +373,6 @@ fun Board(
                     color = selectedCellColor,
                     cornerRadius = cornerRadius
                 )
-                if (selectedCell.row >= 0 && selectedCell.col >= 0) {
-                    drawRoundCell(
-                        row = selectedCell.row,
-                        col = selectedCell.col,
-                        gameSize = size,
-                        rect = Rect(
-                            offset = Offset(
-                                x = selectedCell.col * cellSize,
-                                y = selectedCell.row * cellSize
-                            ),
-                            size = Size(cellSize, cellSize)
-                        ),
-                        color = selectedCellColor,
-                        cornerRadius = cornerRadius
-                    )
-
-                    if (positionLines) {
-                        drawPositionLines(
-                            row = selectedCell.row,
-                            col = selectedCell.col,
-                            gameSize = size,
-                            color = rowColHighlightColor,
-                            cellSize = cellSize,
-                            lineLength = maxWidth,
-                            cornerRadius = cornerRadius
-                        )
-
-                    }
-                }
-
-// 👇 ADD HERE (exactly here, not above, not below anything else)
-
-                // ✅ FINAL WORKING BLOCK
-                // ✅ FINAL SINGLE SOURCE OF TRUTH
-                if (selectedNumberForHighlight > 0) {
-                    for (i in 0 until size) {
-                        for (j in 0 until size) {
-
-                            val cell = board[i][j]
-
-                            if (cell.value == selectedNumberForHighlight) {
-                                drawRoundCell(
-                                    row = i,
-                                    col = j,
-                                    gameSize = size,
-                                    rect = Rect(
-                                        offset = Offset(j * cellSize, i * cellSize),
-                                        size = Size(cellSize, cellSize)
-                                    ),
-                                    color = KanjiSameSymbolHighlight.copy(alpha = 0.22f),
-                                    cornerRadius = cornerRadius
-                                )
-                            }
-                        }
-                    }
-                }
-                if (positionLines) {
-                    drawPositionLines(
-                        row = selectedCell.row,
-                        col = selectedCell.col,
-                        gameSize = size,
-                        color = rowColHighlightColor,
-                        cellSize = cellSize,
-                        lineLength = maxWidth,
-                        cornerRadius = cornerRadius
-                    )
-                }
-            }
-
-            // ✅ symbol-first highlight
-            if (identicalNumbersHighlight && selectedNumberForHighlight > 0) {
-                for (i in 0 until size) {
-                    for (j in 0 until size) {
-                        if (board[i][j].value == selectedNumberForHighlight) {
-                            drawRoundCell(
-                                row = board[i][j].row,
-                                col = board[i][j].col,
-                                gameSize = size,
-                                rect = Rect(
-                                    offset = Offset(
-                                        x = board[i][j].col * cellSize,
-                                        y = board[i][j].row * cellSize
-                                    ),
-                                    size = Size(cellSize, cellSize)
-                                ),
-                                color = sameSymbolHighlightColor,
-                                cornerRadius = cornerRadius
-                            )
-                        }
-                    }
-                }
             }
 
             if (errorsHighlight) {

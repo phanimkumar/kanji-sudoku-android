@@ -1,7 +1,6 @@
 package com.kaajjo.libresudoku.ui.game
 
 
-import android.util.Log
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import com.kaajjo.libresudoku.ui.AdManager
 import android.app.Activity
@@ -102,9 +101,12 @@ import com.kaajjo.libresudoku.ui.game.components.ToolbarItem
 import com.kaajjo.libresudoku.ui.game.components.UndoRedoMenu
 import com.kaajjo.libresudoku.ui.onboarding.FirstGameDialog
 import com.kaajjo.libresudoku.ui.theme.KanjiScreenPadding
+import com.kaajjo.libresudoku.ui.theme.KanjiThemeColors
 import com.kaajjo.libresudoku.ui.util.ReverseArrangement
 import com.ramcosta.composedestinations.annotation.Destination
 import com.ramcosta.composedestinations.navigation.DestinationsNavigator
+import com.kaajjo.libresudoku.ui.theme.KanjiThemeType
+import com.kaajjo.libresudoku.ui.theme.KanjiThemes
 
 // We show "x / 3" in the top bar; 3 is the hard-coded base limit
 private const val UI_MISTAKE_LIMIT = 3
@@ -159,6 +161,12 @@ fun GameScreen(
     val localView = LocalView.current
     val haptic = LocalHapticFeedback.current
     val sectionCompleteEvent by viewModel.sectionCompleteEvent.collectAsStateWithLifecycle()
+    val flashCells by viewModel.cellsToHighlight.collectAsStateWithLifecycle()
+    val kanjiTheme by viewModel.kanjiTheme.collectAsStateWithLifecycle(
+        initialValue = KanjiThemeType.JapanesePaper
+    )
+
+    val theme = KanjiThemes.get(kanjiTheme)
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
     val activity = context as Activity
@@ -368,9 +376,9 @@ fun GameScreen(
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent,
-                    titleContentColor = Color(0xFF0F172A),
-                    navigationIconContentColor = Color(0xFF0F172A),
-                    actionIconContentColor = Color(0xFF0F172A)
+                    titleContentColor = theme.primaryText,
+                    navigationIconContentColor = theme.primaryText,
+                    actionIconContentColor = theme.primaryText
                 )
             )
         }
@@ -380,14 +388,7 @@ fun GameScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFFF8FAFC),
-                            Color(0xFFE2E8F0)
-                        )
-                    )
-                )
+                .background(theme.background)
                 .padding(scaffoldPaddings)
         ) {
             Column(
@@ -410,21 +411,34 @@ fun GameScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            TopBoardSection(stringResource(viewModel.gameDifficulty.resName))
+                            TopBoardSection(
+                                text = stringResource(viewModel.gameDifficulty.resName),
+                                theme = theme
+                            )
 
                             TopBoardSection(
-                                stringResource(
+                                text = stringResource(
                                     R.string.mistakes_number_out_of,
                                     viewModel.mistakesCount,
                                     UI_MISTAKE_LIMIT
-                                )
+                                ),
+                                theme = theme
+                            )
+
+                            TopBoardSection(
+                                text = "Hints ${viewModel.hintsUsed}/3",
+                                theme = theme
                             )
 
                             val timerEnabled by viewModel.timerEnabled.collectAsStateWithLifecycle(
                                 initialValue = PreferencesConstants.DEFAULT_SHOW_TIMER
                             )
+
                             NormalAnimatedVisibility(visible = timerEnabled || viewModel.endGame) {
-                                TopBoardSection(viewModel.timeText)
+                                TopBoardSection(
+                                    text = viewModel.timeText,
+                                    theme = theme
+                                )
                             }
                         }
                     }
@@ -449,7 +463,7 @@ fun GameScreen(
                                 modifier = Modifier
                                     .size(48.dp)
                                     .shadow(12.dp),
-                                tint = Color.White
+                                tint = theme.accent
                             )
                         }
 
@@ -498,9 +512,15 @@ fun GameScreen(
                                         viewModel.gameType == GameType.Killer12x12,
                                 crossHighlight = crossHighlight,
                                 cages = viewModel.cages,
-                                cellsToHighlight = if (advancedHintMode && advancedHintData != null)
-                                    advancedHintData!!.helpCells + advancedHintData!!.targetCell
-                                else null
+                                cellsToHighlight = when {
+                                    advancedHintMode && advancedHintData != null ->
+                                        advancedHintData!!.helpCells + advancedHintData!!.targetCell
+
+                                    flashCells.isNotEmpty() ->
+                                        flashCells
+
+                                    else -> null
+                                }
                             )
                         }
                     }
@@ -513,7 +533,7 @@ fun GameScreen(
                         horizontalArrangement = Arrangement.End
                     ) {
                         TextButton(onClick = { showKanjiInfo = true }) {
-                            Text("Kanji symbols & meanings", color = Color(0xFF334155))
+                            Text("Kanji symbols & meanings", color = theme.primaryText)
                         }
                     }
 
@@ -557,6 +577,7 @@ fun GameScreen(
                                     else Arrangement.Top
                                 ) {
                                     KanjiInputBar(
+                                        theme = theme,
                                         symbols = kanjiSymbols,
                                         selected = if (viewModel.digitFirstNumber > 0)
                                             KanjiMapper.toSymbol(viewModel.digitFirstNumber)
@@ -590,6 +611,7 @@ fun GameScreen(
                                                 }
                                             )
                                             ToolbarItem(
+                                                theme = theme,
                                                 painter = painterResource(R.drawable.ic_round_undo_24),
                                                 onClick = { viewModel.toolbarClick(ToolBarItem.Undo) },
                                                 onLongClick = { viewModel.showUndoRedoMenu = true }
@@ -602,6 +624,7 @@ fun GameScreen(
                                         )
                                         if (!hintsDisabled) {
                                             ToolbarItem(
+                                                theme = theme,
                                                 modifier = Modifier.weight(1f),
                                                 painter = painterResource(R.drawable.ic_lightbulb_stars_24),
                                                 onClick = { viewModel.toolbarClick(ToolBarItem.Hint) }
@@ -619,6 +642,7 @@ fun GameScreen(
                                                 onRenderNotesClick = { renderNotes = !renderNotes }
                                             )
                                             ToolbarItem(
+                                                theme = theme,
                                                 painter = painterResource(R.drawable.ic_round_edit_24),
                                                 toggled = viewModel.notesToggled,
                                                 onClick = { viewModel.toolbarClick(ToolBarItem.Note) },
@@ -635,6 +659,7 @@ fun GameScreen(
 
                                         // Eraser
                                         ToolbarItem(
+                                            theme = theme,
                                             modifier = Modifier.weight(1f),
                                             painter = painterResource(R.drawable.ic_eraser_24),
                                             toggled = viewModel.eraseButtonToggled,
@@ -652,10 +677,18 @@ fun GameScreen(
                                         // Advanced hint
                                         if (advancedHintEnabled) {
                                             ToolbarItem(
+                                                theme = theme,
                                                 modifier = Modifier.weight(1f),
                                                 painter = rememberVectorPainter(Icons.Rounded.AutoAwesome),
                                                 onClick = {
-                                                    if (viewModel.gamePlaying) viewModel.getAdvancedHint()
+                                                    if (viewModel.gamePlaying) {
+                                                        viewModel.pauseTimer()
+
+                                                        AdManager.showRewarded(activity) {
+                                                            viewModel.getAdvancedHint()
+                                                            viewModel.startTimer()
+                                                        }
+                                                    }
                                                 }
                                             )
                                         }
@@ -859,19 +892,26 @@ fun GameScreen(
             AdManager.loadRewarded(context)
         }
 
+        LaunchedEffect(viewModel.gameCompleted) {
+            if (viewModel.gameCompleted) {
+                AdManager.showInterstitial(activity) {
+                    // Ad finished or was unavailable.
+                    // Completion screen remains visible.
+                }
+            }
+        }
+
         LaunchedEffect(Unit) {
             if (!viewModel.endGame && !viewModel.gameCompleted) {
                 viewModel.startTimer()
             }
         }
-        LaunchedEffect(viewModel.gameCompleted) {
-            if (viewModel.gameCompleted) {
-
-                // Show ad first
-                AdManager.showInterstitial(activity) {
-
-                    val timeInSeconds = viewModel.duration.inWholeSeconds
-                    val score = 100000 - timeInSeconds
+        LaunchedEffect(sectionCompleteEvent) {
+            if (sectionCompleteEvent > 0) {
+                if (SDK_INT >= Build.VERSION_CODES.R) {
+                    localView.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                } else {
+                    localView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                 }
             }
         }
@@ -910,6 +950,7 @@ fun GameScreen(
 @Composable
 fun TopBoardSection(
     text: String,
+    theme: KanjiThemeColors,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -919,7 +960,7 @@ fun TopBoardSection(
         Text(
             text = text,
             modifier = Modifier.padding(horizontal = 4.dp),
-            color = Color(0xFF1E293B)
+            color = theme.primaryText
         )
     }
 }

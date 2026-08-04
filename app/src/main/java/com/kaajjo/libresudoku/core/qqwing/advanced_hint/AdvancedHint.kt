@@ -1,35 +1,12 @@
 package com.kaajjo.libresudoku.core.qqwing.advanced_hint
 
+import com.kaajjo.libresudoku.KanjiMapper
 import com.kaajjo.libresudoku.R
 import com.kaajjo.libresudoku.core.Cell
 import com.kaajjo.libresudoku.core.Note
 import com.kaajjo.libresudoku.core.qqwing.GameType
 import com.kaajjo.libresudoku.core.utils.SudokuUtils
 
-
-/**
- * Implemented:
- * Naked single
- * Hidden single
- * Full House
- * TODO:
- * Hidden subsets (pair, triple, quadruple)
- * Naked subsets (pair, triple, quadruple)
- * Locked candidates (all types)
- * Wings (X, XY, XYZ)
- * Swordfish, Jellyfish
- * Chains and loops
- */
-
-/**
- * **Very experimental** provides a hint
- *
- * @property type type of the game
- * @property board current sudoku board
- * @property solvedBoard solved sudoku board
- * @property notes notes for sudoku board
- * @property settings settings for an advanced hint
- */
 class AdvancedHint(
     val type: GameType,
     private val board: List<List<Cell>>,
@@ -48,12 +25,19 @@ class AdvancedHint(
     private val boxes = getBoxes()
 
     fun getEasiestHint(): AdvancedHintData? {
-        val hint: AdvancedHintData? = null
         if (settings.checkWrongValue) checkForWrongValue()?.let { return it }
         if (settings.fullHouse) checkForFullHouse()?.let { return it }
         if (settings.nakedSingle) checkForNakedSingle()?.let { return it }
         if (settings.hiddenSingle) checkForHiddenSingle()?.let { return it }
-        return hint
+        return null
+    }
+
+    private fun valueText(value: Int): String {
+        return if (type.size == 9 && value in 1..9) {
+            KanjiMapper.toSymbol(value)
+        } else {
+            value.toString()
+        }
     }
 
     private fun checkForWrongValue(): AdvancedHintData? {
@@ -65,7 +49,7 @@ class AdvancedHint(
                         textResWithArg = Pair(
                             R.string.hint_wron_value_detail,
                             listOf(
-                                board[i][j].value.toString(),
+                                valueText(board[i][j].value),
                                 cellStringFormat(board[i][j])
                             )
                         ),
@@ -80,6 +64,7 @@ class AdvancedHint(
 
     private fun checkForNakedSingle(): AdvancedHintData? {
         if (notes.isEmpty()) return null
+
         val singles = notes.groupBy { Pair(it.row, it.col) }
             .filter { it.value.size == 1 }
             .map { it.value }
@@ -88,13 +73,14 @@ class AdvancedHint(
         return if (!singles.isNullOrEmpty()) {
             val nakedSingle = singles.first()
             val cell = solvedBoard[nakedSingle.row][nakedSingle.col]
-            return AdvancedHintData(
+
+            AdvancedHintData(
                 titleRes = R.string.hint_naked_single_title,
                 textResWithArg = Pair(
                     R.string.hint_naked_single_detail,
                     listOf(
                         cellStringFormat(cell),
-                        cell.value.toString()
+                        valueText(cell.value)
                     )
                 ),
                 targetCell = cell,
@@ -104,15 +90,13 @@ class AdvancedHint(
             null
         }
     }
-    
+
     private fun checkForFullHouse(): AdvancedHintData? {
         val entities = listOf(boxes, rows, columns)
 
         for (entity in entities) {
             val hint = checkEntityForFullHouse(entity)
-            if (hint != null) {
-                return hint
-            }
+            if (hint != null) return hint
         }
 
         return null
@@ -124,16 +108,17 @@ class AdvancedHint(
                 val emptyCell = group.find { it.value == 0 }
                 if (emptyCell != null) {
                     val solvedCell = solvedBoard[emptyCell.row][emptyCell.col]
+
                     return AdvancedHintData(
                         titleRes = R.string.hint_full_house_group_title,
                         textResWithArg = Pair(
                             R.string.hint_full_house_group_detail,
                             listOf(
                                 cellStringFormat(emptyCell),
-                                solvedCell.value.toString()
+                                valueText(solvedCell.value)
                             )
                         ),
-                        targetCell = solvedBoard[emptyCell.row][emptyCell.col],
+                        targetCell = solvedCell,
                         helpCells = board.flatten().filter { group.contains(it) }
                     )
                 }
@@ -142,29 +127,32 @@ class AdvancedHint(
         return null
     }
 
-    // TODO: Add boxes
     private fun checkForHiddenSingle(): AdvancedHintData? {
         if (notes.isEmpty()) return null
+
         val singlesInRow = notes.groupBy { Pair(it.row, it.value) }
             .filter { it.value.size == 1 }
             .map { it.value }
             .randomOrNull()
-        val singlesInColumn = notes.groupBy { Pair(it.row, it.value) }
+
+        val singlesInColumn = notes.groupBy { Pair(it.col, it.value) }
             .filter { it.value.size == 1 }
             .map { it.value }
             .randomOrNull()
 
-        val pickedSingle = setOf(singlesInRow, singlesInColumn).randomOrNull() ?: return null
+        val pickedSingle = setOfNotNull(singlesInRow, singlesInColumn).randomOrNull() ?: return null
+
         return if (pickedSingle.isNotEmpty()) {
             val hiddenSingle = pickedSingle.first()
             val cell = solvedBoard[hiddenSingle.row][hiddenSingle.col]
-            return AdvancedHintData(
+
+            AdvancedHintData(
                 titleRes = R.string.hint_hidden_single_title,
                 textResWithArg = Pair(
                     R.string.hint_hidden_single_detail,
                     listOf(
                         cellStringFormat(cell),
-                        cell.value.toString()
+                        valueText(cell.value)
                     )
                 ),
                 targetCell = cell,
@@ -188,6 +176,7 @@ class AdvancedHint(
                 transposedBoard[j][i] = board[i][j]
             }
         }
+
         return transposedBoard.toList()
     }
 
@@ -197,6 +186,7 @@ class AdvancedHint(
         val sectionHeight = type.sectionHeight
 
         val boxes = MutableList(sectionWidth * sectionHeight) { mutableListOf<Cell>() }
+
         for (i in 0 until size) {
             for (j in 0 until size) {
                 val sectionRow = i / sectionHeight
@@ -206,6 +196,7 @@ class AdvancedHint(
                 boxes[boxNumber].add(board[i][j])
             }
         }
+
         return boxes
     }
 
