@@ -382,9 +382,22 @@ fun Board(
                 }
             }
 
-            // 3. Selected cell: strongest layer.
+            // 3. Selected cell: soft fill + accent outline, so it stands apart
+            //    from the same-symbol highlights.
             if (hasSelection) {
-                fillCell(selectedCell.row, selectedCell.col, selectedCellColor)
+                fillCell(selectedCell.row, selectedCell.col, selectedCellColor.copy(alpha = 0.18f))
+                val ring = with(density) { 2.dp.toPx() }
+                val inset = ring / 2f + with(density) { 1.5.dp.toPx() }
+                drawRoundRect(
+                    color = kanjiTheme?.accent ?: highlightColor,
+                    topLeft = Offset(
+                        selectedCell.col * cellSize + inset,
+                        selectedCell.row * cellSize + inset
+                    ),
+                    size = Size(cellSize - inset * 2, cellSize - inset * 2),
+                    cornerRadius = CornerRadius(cellSize * 0.14f, cellSize * 0.14f),
+                    style = Stroke(width = ring)
+                )
             }
 
             // 4. Errors.

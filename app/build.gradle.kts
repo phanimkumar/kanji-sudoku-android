@@ -17,8 +17,8 @@ android {
         applicationId = "com.swayamkrushi.kanjisudoku"
         minSdk = 26
         targetSdk = 36
-        versionCode = 65
-        versionName = "3.7.5"
+        versionCode = 66
+        versionName = "3.7.6"
 
         vectorDrawables {
             useSupportLibrary = true
