@@ -17,8 +17,8 @@ android {
         applicationId = "com.swayamkrushi.kanjisudoku"
         minSdk = 26
         targetSdk = 36
-        versionCode = 59
-        versionName = "3.5.9"
+        versionCode = 65
+        versionName = "3.7.5"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -34,6 +34,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -88,6 +89,8 @@ dependencies {
 
     implementation(libs.core.ktx)
     implementation("com.google.android.gms:play-services-ads:23.1.0")
+    // Google Play Games (daily-challenge leaderboard)
+    implementation("com.google.android.gms:play-services-games-v2:20.1.2")
 
     implementation(libs.lifecycle.runtime.ktx)
     implementation(libs.lifecycle.runtime.compose)

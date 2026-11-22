@@ -1,14 +1,12 @@
 package com.kaajjo.libresudoku.ui.components.board
 
-import com.kaajjo.libresudoku.ui.theme.KanjiBoardCellBackground
-import com.kaajjo.libresudoku.ui.theme.KanjiOuterBorder
-import com.kaajjo.libresudoku.ui.theme.KanjiSelectedCell
-import com.kaajjo.libresudoku.ui.theme.KanjiRowColHighlight
-import com.kaajjo.libresudoku.ui.theme.KanjiSameSymbolHighlight
-import com.kaajjo.libresudoku.ui.theme.KanjiSubgridBorder
-import com.kaajjo.libresudoku.ui.theme.KanjiCellBorder
-import com.kaajjo.libresudoku.ui.theme.KanjiThemeColors
+import android.graphics.BlurMaskFilter
 import android.graphics.Paint
+import android.graphics.Typeface
+import android.os.Build
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -17,27 +15,32 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -49,13 +52,41 @@ import com.kaajjo.libresudoku.core.qqwing.Cage
 import com.kaajjo.libresudoku.core.qqwing.GameType
 import com.kaajjo.libresudoku.core.utils.SudokuParser
 import com.kaajjo.libresudoku.ui.theme.BoardColors
+import com.kaajjo.libresudoku.ui.theme.KanjiErrorColor
+import com.kaajjo.libresudoku.ui.theme.KanjiLockedColor
+import com.kaajjo.libresudoku.ui.theme.KanjiOuterBorder
+import com.kaajjo.libresudoku.ui.theme.KanjiRowColHighlight
+import com.kaajjo.libresudoku.ui.theme.KanjiSameSymbolHighlight
+import com.kaajjo.libresudoku.ui.theme.KanjiSelectedCell
+import com.kaajjo.libresudoku.ui.theme.KanjiSymbolColor
+import com.kaajjo.libresudoku.ui.theme.KanjiThemeColors
 import com.kaajjo.libresudoku.ui.theme.LibreSudokuTheme
 import com.kaajjo.libresudoku.ui.theme.SudokuBoardColors
 import com.kaajjo.libresudoku.ui.theme.SudokuBoardColorsImpl
 import com.kaajjo.libresudoku.ui.util.LightDarkPreview
+import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.sqrt
+
+// Board look. Previous values: corner 15px (density-dependent), thin 1.6dp, thick 3dp.
+private val BOARD_CORNER = 12.dp
+private const val THIN_LINE_DP = 1.0f
+private const val THICK_LINE_DP = 2.2f
+
+// Kanji size relative to the cell when "auto font size" is on (was 0.70).
+private const val AUTO_KANJI_SCALE = 0.65f
+
+// Note Kanji size relative to its 1/3-cell slot (was 0.80).
+private const val NOTE_KANJI_SCALE = 0.72f
+
+// Glass look. Lower GLASS_ALPHA = more see-through; 1f = solid (previous look).
+private const val GLASS_ALPHA = 0.84f
+private const val GLASS_SHEEN_ALPHA = 0.10f   // soft light from the top-left
+private const val GLASS_RIM_ALPHA = 0.22f     // thin bright edge along the top
+private val GLASS_SHADOW_BLUR = 14.dp
+private val GLASS_SHADOW_OFFSET = 4.dp
+private const val GLASS_SHADOW_ALPHA = 0.28f
 
 @Composable
 fun Board(
@@ -93,20 +124,25 @@ fun Board(
     cages: List<Cage> = emptyList(),
     selectedNumberForHighlight: Int = 0,
     kanjiTheme: KanjiThemeColors? = null,
-)
-{
+    celebration: Celebration? = null,
+) {
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
             .aspectRatio(1f)
             .padding(4.dp)
     ) {
+        val density = LocalDensity.current
+        val context = LocalContext.current
+
+        // Computed directly (not remembered) so they follow resizes, folds and rotation.
         val maxWidth = constraints.maxWidth.toFloat()
+        val cellSize = maxWidth / size.toFloat()
+        val cellSizeDivWidth = cellSize / ceil(sqrt(size.toFloat()))
+        val vertThick = floor(sqrt(size.toFloat())).toInt()
+        val horThick = ceil(sqrt(size.toFloat())).toInt()
 
-        val cellSize by remember(size) { mutableFloatStateOf(maxWidth / size.toFloat()) }
-        val cellSizeDivWidth by remember(size) { mutableFloatStateOf(cellSize / ceil(sqrt(size.toFloat()))) }
-
-        val errorColor = boardColors.errorColor
+        // ---- colours (theme first, previous look as fallback) ----
         val highlightColor = boardColors.highlightColor
         val boardBackgroundColor = kanjiTheme?.boardBackground ?: Color(0xFFF1F5F9)
         val outerFrameColor = kanjiTheme?.boardBorder ?: KanjiOuterBorder
@@ -116,161 +152,135 @@ fun Board(
             ?: Color(0xFF334155)
         val notesColor = kanjiTheme?.secondaryText ?: boardColors.notesColor
 
-        val lockedTextColor = kanjiTheme?.primaryText ?: Color(0xFF8B0000)
-        val enteredTextColor = kanjiTheme?.accent ?: Color(0xFF8B0000)
+        val lockedTextColor = kanjiTheme?.primaryText ?: KanjiLockedColor
+        val enteredTextColor = kanjiTheme?.accent ?: KanjiSymbolColor
+        val errorTextColor = KanjiErrorColor
+        val errorCellColor = boardColors.errorColor.copy(alpha = 0.35f)
 
-        val selectedCellColor = kanjiTheme?.accent?.copy(alpha = 0.34f)
-            ?: KanjiSelectedCell
-        val rowColHighlightColor = kanjiTheme?.accent?.copy(alpha = 0.11f)
-            ?: KanjiRowColHighlight
-        val sameSymbolHighlightColor = kanjiTheme?.accent?.copy(alpha = 0.20f)
-            ?: KanjiSameSymbolHighlight
+        val selectedCellColor = kanjiTheme?.accent?.copy(alpha = 0.34f) ?: KanjiSelectedCell
+        val rowColHighlightColor = kanjiTheme?.accent?.copy(alpha = 0.11f) ?: KanjiRowColHighlight
+        val sameSymbolHighlightColor = kanjiTheme?.accent?.copy(alpha = 0.20f) ?: KanjiSameSymbolHighlight
+        val flashColor = (kanjiTheme?.accent ?: highlightColor).copy(alpha = 0.30f)
+        val noteHighlightColor = (kanjiTheme?.accent ?: highlightColor).copy(alpha = 0.30f)
+        val crossColor = highlightColor.copy(alpha = 0.1f)
+        val killerSumColor = kanjiTheme?.primaryText ?: Color.Black
+        val celebrationColor = kanjiTheme?.accent ?: highlightColor
 
-        val vertThick by remember(size) { mutableIntStateOf(floor(sqrt(size.toFloat())).toInt()) }
-        val horThick by remember(size) { mutableIntStateOf(ceil(sqrt(size.toFloat())).toInt()) }
-
-        var fontSizePx by remember { mutableFloatStateOf(1f) }
-        with(LocalDensity.current) {
-            LaunchedEffect(autoFontSize, size, mainTextSize) {
-                fontSizePx = if (autoFontSize) {
-                    (cellSize * 0.70f).toSp().toPx()
-                } else {
-                    mainTextSize.toPx()
-                }
-            }
-        }
-
-        val noteSizePx = with(LocalDensity.current) { (cellSizeDivWidth * 0.8f).toSp().toPx() }
-        val killerSumSizePx = with(LocalDensity.current) { noteSizePx * 1.1f }
-
-        val thinLineWidth = with(LocalDensity.current) { 1.6.dp.toPx() }
-        val thickLineWidth = with(LocalDensity.current) { 3.dp.toPx() }
-
-        val killerSumBounds by remember { mutableStateOf(android.graphics.Rect()) }
-
-        var textPaint by remember(fontSizePx) {
-            mutableStateOf(
-                Paint().apply {
-                    color = enteredTextColor.toArgb()
-                    isAntiAlias = true
-                    textSize = fontSizePx
-                    isFakeBoldText = true
-                    style = Paint.Style.FILL_AND_STROKE
-                    strokeWidth = 0.8f
-                }
+        // ---- celebration clock (read only while drawing: no recomposition per frame) ----
+        val celebrationClock = remember { Animatable(0f) }
+        LaunchedEffect(celebration?.id) {
+            val c = celebration ?: return@LaunchedEffect
+            celebrationClock.snapTo(0f)
+            celebrationClock.animateTo(
+                targetValue = c.durationMs.toFloat(),
+                animationSpec = tween(durationMillis = c.durationMs, easing = LinearEasing)
             )
         }
 
-        var errorTextPaint by remember {
-            mutableStateOf(
-                Paint().apply {
-                    color = errorColor.toArgb()
-                    isAntiAlias = true
-                    textSize = fontSizePx
-                    isFakeBoldText = true
-                }
-            )
-        }
+        // ---- sizes ----
+        val fontSizePx = if (autoFontSize) cellSize * AUTO_KANJI_SCALE
+        else with(density) { mainTextSize.toPx() }
+        val noteSizePx = cellSizeDivWidth * NOTE_KANJI_SCALE
+        val killerSumSizePx = cellSizeDivWidth * 0.8f * 1.1f
 
-        var lockedTextPaint by remember {
-            mutableStateOf(
-                Paint().apply {
-                    color = lockedTextColor.toArgb()
-                    isAntiAlias = true
-                    textSize = fontSizePx
-                    isFakeBoldText = true
-                }
-            )
-        }
+        val thinLineWidth = with(density) { THIN_LINE_DP.dp.toPx() }
+        val thickLineWidth = with(density) { THICK_LINE_DP.dp.toPx() }
+        val boardCornerPx = with(density) { BOARD_CORNER.toPx() }
 
-        var notePaint by remember {
-            mutableStateOf(
-                Paint().apply {
-                    color = notesColor.toArgb()
-                    isAntiAlias = true
-                    textSize = noteSizePx
-                }
-            )
-        }
+        // ---- typefaces & paints (rebuilt only when their inputs change) ----
+        val regularFace = remember { KanjiFonts.regular(context) }
+        val boldFace = remember { KanjiFonts.bold(context) }
 
-        val noteHighlightPaint by remember {
-            mutableStateOf(
-                Paint().apply {
-                    color = highlightColor.copy(alpha = 0.3f).toArgb()
-                    isAntiAlias = true
-                }
-            )
+        val lockedTextPaint = remember(fontSizePx, lockedTextColor, boldFace) {
+            kanjiPaint(lockedTextColor, fontSizePx, boldFace)
         }
-
-        var killerSumPaint by remember {
-            mutableStateOf(
-                Paint().apply {
-                    color = notesColor.toArgb()
-                    isAntiAlias = true
-                    textSize = killerSumSizePx
-                }
-            )
+        val textPaint = remember(fontSizePx, enteredTextColor, regularFace) {
+            kanjiPaint(enteredTextColor, fontSizePx, regularFace)
         }
-
-        LaunchedEffect(mainTextSize, noteTextSize, boardColors, kanjiTheme) {
-            textPaint = Paint().apply {
-                color = enteredTextColor.toArgb()
-                isAntiAlias = true
-                textSize = fontSizePx
-                isFakeBoldText = true
-                style = Paint.Style.FILL_AND_STROKE
-                strokeWidth = 0.8f
-            }
-            notePaint = Paint().apply {
-                color = notesColor.toArgb()
-                isAntiAlias = true
-                textSize = noteSizePx
-            }
-            errorTextPaint = Paint().apply {
-                color = Color(230, 67, 83).toArgb()
-                isAntiAlias = true
-                textSize = fontSizePx
-                isFakeBoldText = true
-            }
-            lockedTextPaint = Paint().apply {
-                color = lockedTextColor.toArgb()
-                isAntiAlias = true
-                textSize = fontSizePx
-                isFakeBoldText = true
-            }
-            killerSumPaint = Paint().apply {
-                color = notesColor.toArgb()
-                isAntiAlias = true
+        val errorTextPaint = remember(fontSizePx, errorTextColor, regularFace) {
+            kanjiPaint(errorTextColor, fontSizePx, regularFace)
+        }
+        val notePaint = remember(noteSizePx, notesColor, regularFace) {
+            kanjiPaint(notesColor, noteSizePx, regularFace)
+        }
+        val noteHighlightPaint = remember(noteHighlightColor) {
+            Paint(Paint.ANTI_ALIAS_FLAG).apply { color = noteHighlightColor.toArgb() }
+        }
+        val killerSumPaint = remember(killerSumSizePx, killerSumColor) {
+            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = killerSumColor.toArgb()
                 textSize = killerSumSizePx
             }
         }
+        val killerSumBounds = remember { android.graphics.Rect() }
 
+        // Vertical centre of the nine Kanji glyphs, measured once per paint.
+        val glyphCenterY = remember(lockedTextPaint) { kanjiCenterY(lockedTextPaint) }
+        val noteGlyphCenterY = remember(notePaint) { kanjiCenterY(notePaint) }
+
+        // ---- gestures ----
         var zoom by remember(enabled) { mutableFloatStateOf(1f) }
         var offset by remember(enabled) { mutableStateOf(Offset.Zero) }
 
+        // Read the latest values inside long-lived gesture detectors.
+        val currentBoard by rememberUpdatedState(board)
+        val currentCellSize by rememberUpdatedState(cellSize)
+        val currentOnClick by rememberUpdatedState(onClick)
+        val currentOnLongClick by rememberUpdatedState(onLongClick)
+        val currentEnabled by rememberUpdatedState(enabled)
+
+        fun cellAt(position: Offset): Cell? {
+            val b = currentBoard
+            if (b.isEmpty() || currentCellSize <= 0f) return null
+            val p = position / zoom + offset
+            val row = floor(p.y / currentCellSize).toInt().coerceIn(b.indices)
+            val col = floor(p.x / currentCellSize).toInt().coerceIn(b[row].indices)
+            return b[row][col]
+        }
+
+        val boardShape = RoundedCornerShape(BOARD_CORNER)
+        val shadowBlurPx = with(density) { GLASS_SHADOW_BLUR.toPx() }
+        val shadowOffsetPx = with(density) { GLASS_SHADOW_OFFSET.toPx() }
+        val shadowPaint = remember(shadowBlurPx) {
+            android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.argb((GLASS_SHADOW_ALPHA * 255).toInt(), 0, 0, 0)
+                maskFilter = BlurMaskFilter(shadowBlurPx, BlurMaskFilter.Blur.NORMAL)
+            }
+        }
+        val shadowClip = remember { android.graphics.Path() }
+
         val boardModifier = Modifier
             .fillMaxSize()
-            .pointerInput(key1 = enabled, key2 = board) {
+            // Soft shadow drawn only OUTSIDE the board, so it never darkens the glass.
+            // Blurred shadows need hardware support from Android 9; older phones skip it.
+            .drawBehind {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    val w = this.size.width
+                    val h = this.size.height
+                    drawIntoCanvas { canvas ->
+                        val nc = canvas.nativeCanvas
+                        shadowClip.reset()
+                        shadowClip.addRoundRect(
+                            0f, 0f, w, h,
+                            boardCornerPx, boardCornerPx,
+                            android.graphics.Path.Direction.CW
+                        )
+                        nc.save()
+                        nc.clipOutPath(shadowClip)
+                        nc.drawRoundRect(
+                            0f, shadowOffsetPx, w, h + shadowOffsetPx,
+                            boardCornerPx, boardCornerPx, shadowPaint
+                        )
+                        nc.restore()
+                    }
+                }
+            }
+            .clip(boardShape)
+            .pointerInput(enabled) {
                 detectTapGestures(
-                    onTap = {
-                        val totalOffset = it / zoom + offset
-                        val row =
-                            floor((totalOffset.y) / cellSize)
-                                .toInt()
-                                .coerceIn(board.indices)
-                        val column =
-                            floor((totalOffset.x) / cellSize)
-                                .toInt()
-                                .coerceIn(board.indices)
-                        onClick(board[row][column])
-                    },
-                    onLongPress = {
-                        if (enabled) {
-                            val totalOffset = it / zoom + offset
-                            val row = floor((totalOffset.y) / cellSize).toInt()
-                            val column = floor((totalOffset.x) / cellSize).toInt()
-                            onLongClick(board[row][column])
-                        }
+                    onTap = { pos -> cellAt(pos)?.let { currentOnClick(it) } },
+                    onLongPress = { pos ->
+                        if (currentEnabled) cellAt(pos)?.let { currentOnLongClick(it) }
                     }
                 )
             }
@@ -312,13 +322,41 @@ fun Board(
         Canvas(
             modifier = if (zoomable) boardModifier.then(zoomModifier) else boardModifier
         ) {
+            // The canvas is clipped to the rounded board shape, so every layer below
+            // can use plain rectangles: corners are always correct.
+            // Glass: slightly see-through surface + soft light from the top-left.
+            drawRect(color = boardBackgroundColor.copy(alpha = GLASS_ALPHA), size = this.size)
             drawRect(
-                color = boardBackgroundColor,
+                brush = Brush.linearGradient(
+                    colors = listOf(Color.White.copy(alpha = GLASS_SHEEN_ALPHA), Color.Transparent),
+                    start = Offset.Zero,
+                    end = Offset(this.size.width * 0.65f, this.size.height * 0.65f)
+                ),
                 size = this.size
             )
 
-            val cornerRadius = CornerRadius(15f, 15f)
-            val hasSelection = selectedCell.row >= 0 && selectedCell.col >= 0
+            val elapsed = celebrationClock.value
+
+            fun fillCell(row: Int, col: Int, color: Color) {
+                drawRect(
+                    color = color,
+                    topLeft = Offset(col * cellSize, row * cellSize),
+                    size = Size(cellSize, cellSize)
+                )
+            }
+
+            // 0. Alternating-box tint (background layer, under the Kanji).
+            if (crossHighlight && size != 6) {
+                drawCrossSelection(
+                    gameSize = size,
+                    sectionWidth = getSectionWidthForSize(size),
+                    sectionHeight = getSectionHeightForSize(size),
+                    color = crossColor,
+                    cellSize = cellSize
+                )
+            }
+
+            val hasSelection = selectedCell.row in 0 until size && selectedCell.col in 0 until size
 
             // 1. Row and column highlight: weakest layer.
             if (hasSelection && positionLines) {
@@ -329,7 +367,7 @@ fun Board(
                     color = rowColHighlightColor,
                     cellSize = cellSize,
                     lineLength = maxWidth,
-                    cornerRadius = cornerRadius
+                    cornerRadius = CornerRadius.Zero
                 )
             }
 
@@ -338,20 +376,7 @@ fun Board(
                 for (i in 0 until size) {
                     for (j in 0 until size) {
                         if (board[i][j].value == selectedNumberForHighlight) {
-                            drawRoundCell(
-                                row = i,
-                                col = j,
-                                gameSize = size,
-                                rect = Rect(
-                                    offset = Offset(
-                                        x = j * cellSize,
-                                        y = i * cellSize
-                                    ),
-                                    size = Size(cellSize, cellSize)
-                                ),
-                                color = sameSymbolHighlightColor,
-                                cornerRadius = cornerRadius
-                            )
+                            fillCell(i, j, sameSymbolHighlightColor)
                         }
                     }
                 }
@@ -359,70 +384,31 @@ fun Board(
 
             // 3. Selected cell: strongest layer.
             if (hasSelection) {
-                drawRoundCell(
-                    row = selectedCell.row,
-                    col = selectedCell.col,
-                    gameSize = size,
-                    rect = Rect(
-                        offset = Offset(
-                            x = selectedCell.col * cellSize,
-                            y = selectedCell.row * cellSize
-                        ),
-                        size = Size(cellSize, cellSize)
-                    ),
-                    color = selectedCellColor,
-                    cornerRadius = cornerRadius
-                )
+                fillCell(selectedCell.row, selectedCell.col, selectedCellColor)
             }
 
+            // 4. Errors.
             if (errorsHighlight) {
                 for (i in 0 until size) {
                     for (j in 0 until size) {
-                        val cell = board[i][j]
-                        if (cell.error) {
-                            drawRoundCell(
-                                row = i,
-                                col = j,
-                                gameSize = size,
-                                rect = Rect(
-                                    offset = Offset(
-                                        x = j * cellSize,
-                                        y = i * cellSize
-                                    ),
-                                    size = Size(cellSize, cellSize)
-                                ),
-                                color = errorColor.copy(alpha = 0.35f),
-                                cornerRadius = cornerRadius
-                            )
-                        }
+                        if (board[i][j].error) fillCell(i, j, errorCellColor)
                     }
                 }
             }
 
+            // 5. Completion flash / advanced-hint cells.
             cellsToHighlight?.forEach {
-                drawRoundCell(
-                    row = it.row,
-                    col = it.col,
-                    gameSize = size,
-                    color = highlightColor.copy(alpha = 0.3f),
-                    rect = Rect(
-                        Offset(
-                            x = it.col * cellSize,
-                            y = it.row * cellSize
-                        ),
-                        size = Size(cellSize, cellSize)
-                    ),
-                    cornerRadius = cornerRadius
-                )
+                if (it.row in 0 until size && it.col in 0 until size) {
+                    fillCell(it.row, it.col, flashColor)
+                }
             }
 
-            drawBoardFrame(
-                thickLineColor = outerFrameColor,
-                thickLineWidth = thickLineWidth,
-                maxWidth = maxWidth,
-                cornerRadius = CornerRadius(15f, 15f)
-            )
+            // 5b. Celebration light (under the grid and Kanji).
+            if (celebration != null) {
+                drawCelebrationGlow(celebration, elapsed, cellSize, celebrationColor)
+            }
 
+            // 6. Grid lines.
             for (i in 1 until size) {
                 val isThickLine = i % horThick == 0
                 drawLine(
@@ -435,16 +421,50 @@ fun Board(
 
             for (i in 1 until size) {
                 val isThickLine = i % vertThick == 0
-                if (maxWidth >= cellSize * i) {
-                    drawLine(
-                        color = if (isThickLine) thickLineColor else thinLineColor,
-                        start = Offset(0f, cellSize * i.toFloat()),
-                        end = Offset(maxWidth, cellSize * i.toFloat()),
-                        strokeWidth = if (isThickLine) thickLineWidth else thinLineWidth
-                    )
-                }
+                drawLine(
+                    color = if (isThickLine) thickLineColor else thinLineColor,
+                    start = Offset(0f, cellSize * i.toFloat()),
+                    end = Offset(maxWidth, cellSize * i.toFloat()),
+                    strokeWidth = if (isThickLine) thickLineWidth else thinLineWidth
+                )
             }
 
+            // 7. Outer frame, inset by half its width so it isn't cut by the clip.
+            val half = thickLineWidth / 2f
+            drawRoundRect(
+                color = outerFrameColor,
+                topLeft = Offset(half, half),
+                size = Size(maxWidth - thickLineWidth, maxWidth - thickLineWidth),
+                cornerRadius = CornerRadius(
+                    (boardCornerPx - half).coerceAtLeast(0f),
+                    (boardCornerPx - half).coerceAtLeast(0f)
+                ),
+                style = Stroke(width = thickLineWidth)
+            )
+
+            // 7b. Glass rim: a thin bright edge along the top, fading downwards.
+            val rimInset = thickLineWidth + 0.5f
+            drawRoundRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(Color.White.copy(alpha = GLASS_RIM_ALPHA), Color.Transparent),
+                    startY = 0f,
+                    endY = maxWidth * 0.35f
+                ),
+                topLeft = Offset(rimInset, rimInset),
+                size = Size(maxWidth - rimInset * 2, maxWidth - rimInset * 2),
+                cornerRadius = CornerRadius(
+                    (boardCornerPx - rimInset).coerceAtLeast(0f),
+                    (boardCornerPx - rimInset).coerceAtLeast(0f)
+                ),
+                style = Stroke(width = with(density) { 1.dp.toPx() })
+            )
+
+            // 7c. Celebration outline around completed boxes.
+            if (celebration != null) {
+                drawCelebrationTrace(celebration, elapsed, cellSize, celebrationColor, thickLineWidth)
+            }
+
+            // 8. Kanji.
             drawNumbers(
                 size = size,
                 board = board,
@@ -453,9 +473,14 @@ fun Board(
                 lockedTextPaint = lockedTextPaint,
                 textPaint = textPaint,
                 questions = questions,
-                cellSize = cellSize
+                cellSize = cellSize,
+                glyphCenterY = glyphCenterY,
+                scaleFor = if (celebration != null) {
+                    { r: Int, col: Int -> celebration.kanjiScale(r, col, elapsed) }
+                } else null
             )
 
+            // 9. Notes.
             if (!notes.isNullOrEmpty() && !questions && renderNotes) {
                 drawNotes(
                     size = size,
@@ -465,26 +490,17 @@ fun Board(
                     notesToHighlight = notesToHighlight,
                     cellSize = cellSize,
                     cellSizeDivWidth = cellSizeDivWidth,
-                    killerSumBounds = killerSumBounds
+                    killerSumBounds = killerSumBounds,
+                    noteGlyphCenterY = noteGlyphCenterY
                 )
             }
 
-            if (crossHighlight && size != 6) {
-                drawCrossSelection(
-                    gameSize = size,
-                    sectionWidth = getSectionWidthForSize(size),
-                    sectionHeight = getSectionHeightForSize(size),
-                    color = highlightColor.copy(alpha = 0.1f),
-                    cellSize = cellSize
-                )
-            }
-
+            // 10. Killer cages (unchanged behaviour).
             if (cages.isNotEmpty()) {
                 cages.forEach { cage ->
                     val textToDraw = if (questions) "?" else cage.sum.toString()
                     killerSumPaint.getTextBounds(textToDraw, 0, textToDraw.length, killerSumBounds)
                     val cellWithSum = cage.cells.first()
-                    killerSumPaint.color = Color(0xFF000000).toArgb()
 
                     drawIntoCanvas { canvas ->
                         canvas.nativeCanvas.drawText(
@@ -511,6 +527,16 @@ fun Board(
         }
     }
 }
+
+/** Paint for Kanji: centred horizontally, Japanese glyph forms, given typeface. */
+internal fun kanjiPaint(color: Color, sizePx: Float, face: Typeface): Paint =
+    Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
+        this.color = color.toArgb()
+        textSize = sizePx
+        textAlign = Paint.Align.CENTER
+        textLocale = Locale.JAPAN
+        typeface = face
+    }
 
 @LightDarkPreview
 @Composable

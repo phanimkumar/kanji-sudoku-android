@@ -1,26 +1,24 @@
 package com.kaajjo.libresudoku.ui.game
 
 
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import com.kaajjo.libresudoku.ui.AdManager
-import android.app.Activity
-import androidx.compose.ui.platform.LocalHapticFeedback
-import com.kaajjo.libresudoku.ui.BannerAd
 import android.os.Build
-import kotlinx.coroutines.delay
 import android.os.Build.VERSION.SDK_INT
 import android.view.HapticFeedbackConstants
 import android.view.View
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility as NormalAnimatedVisibility
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -52,12 +50,15 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
@@ -71,17 +72,26 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.intl.LocaleList
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.delay
 import com.kaajjo.libresudoku.KanjiMapper
 import com.kaajjo.libresudoku.R
 import com.kaajjo.libresudoku.core.Cell
@@ -89,11 +99,18 @@ import com.kaajjo.libresudoku.core.PreferencesConstants
 import com.kaajjo.libresudoku.core.qqwing.GameType
 import com.kaajjo.libresudoku.core.qqwing.advanced_hint.AdvancedHintData
 import com.kaajjo.libresudoku.core.utils.SudokuParser
+import com.kaajjo.libresudoku.daily.PlayGamesHelper
 import com.kaajjo.libresudoku.destinations.SettingsCategoriesScreenDestination
+import com.kaajjo.libresudoku.ui.AdManager
+import com.kaajjo.libresudoku.ui.BannerAd
 import com.kaajjo.libresudoku.ui.components.AdvancedHintContainer
 import com.kaajjo.libresudoku.ui.components.AnimatedNavigation
 import com.kaajjo.libresudoku.ui.components.board.Board
+import com.kaajjo.libresudoku.ui.components.board.Celebration
+import com.kaajjo.libresudoku.ui.components.board.CelebrationKind
+import com.kaajjo.libresudoku.ui.components.board.KanjiFonts
 import com.kaajjo.libresudoku.ui.game.components.GameMenu
+import com.kaajjo.libresudoku.ui.game.components.HankoRed
 import com.kaajjo.libresudoku.ui.game.components.KanjiInputBar
 import com.kaajjo.libresudoku.ui.game.components.NotesMenu
 import com.kaajjo.libresudoku.ui.game.components.ToolBarItem
@@ -102,14 +119,12 @@ import com.kaajjo.libresudoku.ui.game.components.UndoRedoMenu
 import com.kaajjo.libresudoku.ui.onboarding.FirstGameDialog
 import com.kaajjo.libresudoku.ui.theme.KanjiScreenPadding
 import com.kaajjo.libresudoku.ui.theme.KanjiThemeColors
-import com.kaajjo.libresudoku.ui.util.ReverseArrangement
-import com.ramcosta.composedestinations.annotation.Destination
-import com.ramcosta.composedestinations.navigation.DestinationsNavigator
 import com.kaajjo.libresudoku.ui.theme.KanjiThemeType
 import com.kaajjo.libresudoku.ui.theme.KanjiThemes
-
-// We show "x / 3" in the top bar; 3 is the hard-coded base limit
-private const val UI_MISTAKE_LIMIT = 3
+import com.kaajjo.libresudoku.ui.util.ReverseArrangement
+import com.kaajjo.libresudoku.ui.util.findActivity
+import com.ramcosta.composedestinations.annotation.Destination
+import com.ramcosta.composedestinations.navigation.DestinationsNavigator
 
 @Composable
 private fun GlassPanel(
@@ -122,7 +137,6 @@ private fun GlassPanel(
     Box(
         modifier = modifier
             .clip(shape)
-            // ✅ Soft premium glass (no heavy teal)
             .background(
                 Brush.linearGradient(
                     colors = listOf(
@@ -131,13 +145,11 @@ private fun GlassPanel(
                     )
                 )
             )
-            // ✅ Subtle border (no strong glow)
             .border(
                 width = 1.dp,
                 color = Color.White.copy(alpha = 0.25f),
                 shape = shape
             )
-            // ✅ Light shadow (premium depth)
             .shadow(
                 elevation = 6.dp,
                 shape = shape,
@@ -159,9 +171,6 @@ fun GameScreen(
     navigator: DestinationsNavigator
 ) {
     val localView = LocalView.current
-    val haptic = LocalHapticFeedback.current
-    val sectionCompleteEvent by viewModel.sectionCompleteEvent.collectAsStateWithLifecycle()
-    val flashCells by viewModel.cellsToHighlight.collectAsStateWithLifecycle()
     val kanjiTheme by viewModel.kanjiTheme.collectAsStateWithLifecycle(
         initialValue = KanjiThemeType.JapanesePaper
     )
@@ -169,9 +178,98 @@ fun GameScreen(
     val theme = KanjiThemes.get(kanjiTheme)
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
-    val activity = context as Activity
+    // findActivity() walks ContextWrappers safely; a plain cast can crash.
+    val activity = remember(context) { context.findActivity() }
 
     var showKanjiInfo by remember { mutableStateOf(false) }
+
+    // ── Feedback & celebrations ──
+    val feedback = remember(context, localView) { GameFeedback(context, localView) }
+    DisposableEffect(feedback) { onDispose { feedback.release() } }
+
+    var celebration by remember { mutableStateOf<Celebration?>(null) }
+    var celebrationSeq by remember { mutableLongStateOf(0L) }
+    var caption by remember { mutableStateOf<String?>(null) }
+    var lastCaption by remember { mutableStateOf("") }
+
+    // Finale state survives rotation, so nothing replays.
+    var sealVisible by rememberSaveable { mutableStateOf(false) }
+    var resultVisible by rememberSaveable { mutableStateOf(false) }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(viewModel, lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            viewModel.events.collect { event ->
+                when (event) {
+                    GameEvent.Placed -> feedback.placed()
+                    GameEvent.Mistake -> feedback.mistake()
+
+                    is GameEvent.Completed -> {
+                        celebrationSeq++
+                        celebration = Celebration(
+                            id = celebrationSeq,
+                            kind = if (event.symbol > 0) CelebrationKind.Symbol else CelebrationKind.Unit,
+                            cells = event.cells,
+                            originRow = event.originRow,
+                            originCol = event.originCol,
+                            boxes = event.boxes
+                        )
+                        if (event.symbol > 0) {
+                            feedback.symbolComplete()
+                            caption = "${KanjiMapper.toSymbol(event.symbol)} · " +
+                                    "${KanjiMapper.meaning(event.symbol)} — complete"
+                        } else {
+                            feedback.unitComplete(event.units)
+                        }
+                    }
+
+                    GameEvent.Solved -> {
+                        celebrationSeq++
+                        celebration = Celebration(
+                            id = celebrationSeq,
+                            kind = CelebrationKind.Solved,
+                            cells = viewModel.gameBoard.flatten(),
+                            originRow = 0,
+                            originCol = 0
+                        )
+                        feedback.solvedStart()
+                    }
+                }
+            }
+        }
+    }
+
+    // Symbol-complete caption: fade in, hold, fade out.
+    LaunchedEffect(caption) {
+        caption?.let {
+            lastCaption = it
+            delay(2200)
+            caption = null
+        }
+    }
+
+    // Daily challenge: send today's solved time to the Play Games leaderboard.
+    // If it fails (offline / not signed in) it is retried from the Home screen.
+    LaunchedEffect(viewModel.dailyTimeToSubmit) {
+        val ms = viewModel.dailyTimeToSubmit ?: return@LaunchedEffect
+        val act = activity ?: return@LaunchedEffect
+        PlayGamesHelper.submitDailyTime(act, ms) { ok ->
+            if (ok) viewModel.onDailySubmitted()
+        }
+    }
+
+    // Finale: board wave (from the Solved event) → 完 seal lands → result card rises.
+    LaunchedEffect(viewModel.gameCompleted) {
+        if (viewModel.gameCompleted && !resultVisible) {
+            if (!sealVisible) {
+                delay(1100)
+                sealVisible = true
+                feedback.seal()
+            }
+            delay(900)
+            resultVisible = true
+        }
+    }
 
     val firstGame by viewModel.firstGame.collectAsStateWithLifecycle(initialValue = false)
     val resetTimer by viewModel.resetTimerOnRestart.collectAsStateWithLifecycle(
@@ -220,7 +318,6 @@ fun GameScreen(
     if (keepScreenOn) KeepScreenOn()
 
     if (firstGame) {
-        viewModel.pauseTimer()
         FirstGameDialog(
             onFinished = {
                 viewModel.setFirstGameFalse()
@@ -244,10 +341,6 @@ fun GameScreen(
         targetValue = if (viewModel.gamePlaying || viewModel.endGame) 1f else 0.90f,
         label = "Game board scale"
     )
-
-
-
-
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -320,7 +413,10 @@ fun GameScreen(
 
                     // Restart
                     NormalAnimatedVisibility(visible = !viewModel.endGame) {
-                        IconButton(onClick = { viewModel.restartDialog = true }) {
+                        IconButton(onClick = {
+                            viewModel.pauseTimer()
+                            viewModel.restartDialog = true
+                        }) {
                             Icon(
                                 modifier = Modifier.rotate(restartButtonAnimation),
                                 painter = painterResource(R.drawable.ic_round_replay_24),
@@ -341,6 +437,10 @@ fun GameScreen(
                             GameMenu(
                                 expanded = viewModel.showMenu,
                                 onDismiss = { viewModel.showMenu = false },
+                                soundEnabled = feedback.soundEnabled,
+                                onSoundToggle = { feedback.toggleSound() },
+                                hapticsEnabled = feedback.hapticsEnabled,
+                                onHapticsToggle = { feedback.toggleHaptics() },
                                 onGiveUpClick = {
                                     viewModel.pauseTimer()
                                     viewModel.giveUpDialog = true
@@ -384,7 +484,6 @@ fun GameScreen(
         }
     ) { scaffoldPaddings ->
 
-        // ✅ TURQUOISE background (stronger glow so it won't read as blue)
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -416,17 +515,18 @@ fun GameScreen(
                                 theme = theme
                             )
 
+                            // Shows the real limit, including any extra life earned from an ad.
                             TopBoardSection(
                                 text = stringResource(
                                     R.string.mistakes_number_out_of,
                                     viewModel.mistakesCount,
-                                    UI_MISTAKE_LIMIT
+                                    viewModel.effectiveMistakeLimit
                                 ),
                                 theme = theme
                             )
 
                             TopBoardSection(
-                                text = "Hints ${viewModel.hintsUsed}/3",
+                                text = "Hints ${viewModel.hintsUsed}/${viewModel.effectiveHintLimit}",
                                 theme = theme
                             )
 
@@ -443,7 +543,7 @@ fun GameScreen(
                         }
                     }
 
-                    // ✅ Board area locked to square so it never covers keyboard
+                    // Board area locked to square so it never covers keyboard
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -467,17 +567,16 @@ fun GameScreen(
                             )
                         }
 
-                        // Glass wrapper + board + TURQUOISE tint overlay on top (kills pale/pink board)
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .blur(boardBlur)
+                                // Unbounded: don't clip the board's soft glass shadow.
+                                .blur(boardBlur, BlurredEdgeTreatment.Unbounded)
                                 .scale(boardScale)
                         ) {
                             Board(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .shadow(6.dp, RoundedCornerShape(12.dp)),
+                                // The board draws its own glass shadow now.
+                                modifier = Modifier.fillMaxSize(),
                                 board = if (!viewModel.showSolution) viewModel.gameBoard else viewModel.solvedBoard,
                                 size = viewModel.size,
                                 mainTextSize = fontSizeValue,
@@ -512,26 +611,60 @@ fun GameScreen(
                                         viewModel.gameType == GameType.Killer12x12,
                                 crossHighlight = crossHighlight,
                                 cages = viewModel.cages,
-                                cellsToHighlight = when {
-                                    advancedHintMode && advancedHintData != null ->
-                                        advancedHintData!!.helpCells + advancedHintData!!.targetCell
-
-                                    flashCells.isNotEmpty() ->
-                                        flashCells
-
-                                    else -> null
-                                }
+                                cellsToHighlight = if (advancedHintMode && advancedHintData != null) {
+                                    advancedHintData!!.helpCells + advancedHintData!!.targetCell
+                                } else null,
+                                kanjiTheme = theme,
+                                celebration = celebration
                             )
+
+                            // 完 seal stamped on the board when the puzzle is solved.
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(16.dp),
+                                contentAlignment = Alignment.BottomEnd
+                            ) {
+                                androidx.compose.animation.AnimatedVisibility(
+                                    visible = sealVisible && viewModel.gameCompleted,
+                                    enter = scaleIn(
+                                        initialScale = 2.2f,
+                                        animationSpec = spring(
+                                            dampingRatio = 0.5f,
+                                            stiffness = Spring.StiffnessMedium
+                                        )
+                                    ) + fadeIn(tween(90))
+                                ) {
+                                    SolvedSeal()
+                                }
+                            }
                         }
                     }
 
-                    // Kanji meanings button (OUTSIDE the board box)
+                    // Kanji meanings button (OUTSIDE the board box), with the
+                    // "水 · Water — complete" caption fading in on the left.
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = 4.dp),
-                        horizontalArrangement = Arrangement.End
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = caption != null,
+                                enter = fadeIn(tween(250)) + slideInVertically(tween(250)) { it / 2 },
+                                exit = fadeOut(tween(400))
+                            ) {
+                                Text(
+                                    text = lastCaption,
+                                    color = theme.accent,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(start = 4.dp)
+                                )
+                            }
+                        }
                         TextButton(onClick = { showKanjiInfo = true }) {
                             Text("Kanji symbols & meanings", color = theme.primaryText)
                         }
@@ -583,6 +716,8 @@ fun GameScreen(
                                             KanjiMapper.toSymbol(viewModel.digitFirstNumber)
                                         else null,
                                         remainingUses = if (remainingUse) remainingUsesList else null,
+                                        completedSymbols = viewModel.completedSymbols,
+                                        onKeyFeedback = { feedback.keyTap() },
                                         onSelect = { symbol ->
                                             val index = kanjiSymbols.indexOf(symbol)
                                             if (index >= 0) {
@@ -591,8 +726,10 @@ fun GameScreen(
                                                     remainingUsesList[index] <= 0
                                                 ) return@KanjiInputBar
 
-                                                val num = index + 1
-                                                viewModel.processInputKeyboard(number = num)
+                                                viewModel.processInputKeyboard(
+                                                    number = index + 1,
+                                                    remainingUse = remainingUse
+                                                )
                                             }
                                         }
                                     )
@@ -681,11 +818,12 @@ fun GameScreen(
                                                 modifier = Modifier.weight(1f),
                                                 painter = rememberVectorPainter(Icons.Rounded.AutoAwesome),
                                                 onClick = {
-                                                    if (viewModel.gamePlaying) {
+                                                    val act = activity
+                                                    if (viewModel.gamePlaying && act != null) {
                                                         viewModel.pauseTimer()
-
-                                                        AdManager.showRewarded(activity) {
-                                                            viewModel.getAdvancedHint()
+                                                        AdManager.showRewarded(act) { earned ->
+                                                            if (earned) viewModel.getAdvancedHint()
+                                                            // Always resume, even if the ad was skipped or unavailable.
                                                             viewModel.startTimer()
                                                         }
                                                     }
@@ -703,9 +841,10 @@ fun GameScreen(
         }
 
         // ───────────────────── dialogs ─────────────────────
+        // Note: dialogs no longer call pauseTimer() during composition.
+        // The buttons that open them pause the game instead.
 
         if (viewModel.restartDialog) {
-            viewModel.pauseTimer()
             AlertDialog(
                 onDismissRequest = {
                     viewModel.restartDialog = false
@@ -731,7 +870,6 @@ fun GameScreen(
         }
 
         if (viewModel.giveUpDialog) {
-            viewModel.pauseTimer()
             AlertDialog(
                 onDismissRequest = {
                     viewModel.giveUpDialog = false
@@ -749,23 +887,29 @@ fun GameScreen(
                     TextButton(onClick = {
                         viewModel.giveUp()
                         viewModel.giveUpDialog = false
-                        viewModel.pauseTimer()
                     }) { Text(stringResource(R.string.dialog_yes)) }
                 }
             )
         }
 
-        // Extra life dialog
+        // Extra life dialog. Not dismissable by tapping outside or Back:
+        // an accidental tap used to forfeit the puzzle.
         val extraLifeDialog by viewModel.extraLifeDialog.collectAsStateWithLifecycle()
         if (extraLifeDialog) {
             AlertDialog(
-                onDismissRequest = { viewModel.onExtraLifeAdRejected() },
+                onDismissRequest = { /* explicit choice required */ },
+                properties = DialogProperties(
+                    dismissOnBackPress = false,
+                    dismissOnClickOutside = false
+                ),
                 title = { Text("Get extra life") },
                 text = { Text("Watch an ad to continue with 1 extra life.") },
                 confirmButton = {
                     TextButton(onClick = {
-                        AdManager.showRewarded(activity) {
-                            viewModel.onExtraLifeAdWatched()
+                        val act = activity ?: return@TextButton
+                        AdManager.showRewarded(act) { earned ->
+                            // If not earned, the dialog stays open so the player can retry or give up.
+                            if (earned) viewModel.onExtraLifeAdWatched()
                         }
                     }) {
                         Text("Watch Ad")
@@ -773,12 +917,11 @@ fun GameScreen(
                 },
                 dismissButton = {
                     TextButton(onClick = { viewModel.onExtraLifeAdRejected() }) {
-                        Text("Cancel")
+                        Text("Give up")
                     }
                 }
             )
         }
-
 
         // Extra hint dialog
         val extraHintDialog by viewModel.extraHintDialog.collectAsStateWithLifecycle()
@@ -790,8 +933,10 @@ fun GameScreen(
                 text = { Text("Watch an ad to get 1 extra hint.") },
                 confirmButton = {
                     TextButton(onClick = {
-                        AdManager.showRewarded(activity) {
-                            viewModel.onExtraHintAdWatched()
+                        val act = activity ?: return@TextButton
+                        AdManager.showRewarded(act) { earned ->
+                            if (earned) viewModel.onExtraHintAdWatched()   // applies the hint
+                            else viewModel.onExtraHintAdRejected()         // closes and resumes
                         }
                     }) {
                         Text("Watch Ad")
@@ -804,7 +949,6 @@ fun GameScreen(
                 }
             )
         }
-
 
         // Kanji symbols information dialog
         if (showKanjiInfo) {
@@ -840,8 +984,9 @@ fun GameScreen(
                 text = { Text("Watch an ad to see the full solution grid.") },
                 confirmButton = {
                     TextButton(onClick = {
-                        AdManager.showRewarded(activity) {
-                            viewModel.onSolutionAdWatched()
+                        val act = activity ?: return@TextButton
+                        AdManager.showRewarded(act) { earned ->
+                            if (earned) viewModel.onSolutionAdWatched()
                         }
                     }) {
                         Text("Watch Ad")
@@ -853,30 +998,96 @@ fun GameScreen(
             )
         }
 
+        // Puzzle could not be loaded
+        if (viewModel.loadFailed) {
+            AlertDialog(
+                onDismissRequest = { navigator.popBackStack() },
+                title = { Text("Couldn't open this puzzle") },
+                text = { Text("Something went wrong while loading the game. Please try another puzzle.") },
+                confirmButton = {
+                    TextButton(onClick = { navigator.popBackStack() }) { Text("Back") }
+                }
+            )
+        }
+
+        // Completion card. The interstitial (if any) is shown only when the player
+        // taps Continue, never over the moment of solving.
         if (viewModel.gameCompleted) {
+            var leaving by remember { mutableStateOf(false) }
+            val scrimAlpha by animateFloatAsState(
+                targetValue = if (resultVisible) 0.55f else 0f,
+                animationSpec = tween(350),
+                label = "Result scrim"
+            )
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xAA000000)),
+                    .background(Color.Black.copy(alpha = scrimAlpha)),
                 contentAlignment = Alignment.Center
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "🎉 Congratulations 🎉",
-                        fontSize = 32.sp,
-                        color = Color.White
-                    )
-                    Text(
-                        text = "You solved the Kanji Sudoku!",
-                        fontSize = 18.sp,
-                        color = Color.White,
-                        modifier = Modifier.padding(top = 12.dp)
-                    )
-                    TextButton(
-                        modifier = Modifier.padding(top = 24.dp),
-                        onClick = { navigator.popBackStack() }
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = resultVisible,
+                    enter = fadeIn(tween(220)) + slideInVertically(
+                        animationSpec = spring(
+                            dampingRatio = 0.82f,
+                            stiffness = Spring.StiffnessLow
+                        )
+                    ) { it / 3 }
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .padding(32.dp)
+                            .shadow(16.dp, RoundedCornerShape(24.dp))
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(theme.boardBackground)
+                            .padding(horizontal = 28.dp, vertical = 24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text("Play Again", color = Color.Yellow, fontSize = 20.sp)
+                        Text(
+                            text = if (viewModel.isDailyChallenge) "DAILY CHALLENGE"
+                            else stringResource(viewModel.gameDifficulty.resName).uppercase(),
+                            fontSize = 12.sp,
+                            letterSpacing = 2.sp,
+                            color = theme.secondaryText
+                        )
+                        Text(
+                            text = "Puzzle solved",
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = theme.primaryText,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                        Row(
+                            modifier = Modifier.padding(top = 20.dp),
+                            horizontalArrangement = Arrangement.spacedBy(28.dp)
+                        ) {
+                            ResultStat(label = "Time", value = viewModel.timeText, theme = theme)
+                            ResultStat(label = "Mistakes", value = "${viewModel.mistakesCount}", theme = theme)
+                            ResultStat(label = "Hints", value = "${viewModel.hintsUsed}", theme = theme)
+                        }
+                        if (viewModel.isDailyChallenge) {
+                            TextButton(
+                                modifier = Modifier.padding(top = 16.dp),
+                                onClick = { activity?.let { PlayGamesHelper.showDailyLeaderboard(it) } }
+                            ) {
+                                Text("View leaderboard", color = theme.accent)
+                            }
+                        }
+                        FilledTonalButton(
+                            modifier = Modifier.padding(top = if (viewModel.isDailyChallenge) 4.dp else 24.dp),
+                            enabled = !leaving,
+                            onClick = {
+                                leaving = true
+                                val act = activity
+                                if (act != null) {
+                                    AdManager.maybeShowInterstitial(act) { navigator.popBackStack() }
+                                } else {
+                                    navigator.popBackStack()
+                                }
+                            }
+                        ) {
+                            Text("Continue")
+                        }
                     }
                 }
             }
@@ -887,66 +1098,79 @@ fun GameScreen(
         LaunchedEffect(viewModel.mistakesMethod) {
             viewModel.checkMistakesAll()
         }
+
+        // Preload ads (no-op until consent allows ads).
         LaunchedEffect(Unit) {
-            AdManager.loadInterstitial(context)
-            AdManager.loadRewarded(context)
+            AdManager.preload(context)
         }
 
-        LaunchedEffect(viewModel.gameCompleted) {
-            if (viewModel.gameCompleted) {
-                AdManager.showInterstitial(activity) {
-                    // Ad finished or was unavailable.
-                    // Completion screen remains visible.
-                }
-            }
-        }
-
-        LaunchedEffect(Unit) {
-            if (!viewModel.endGame && !viewModel.gameCompleted) {
+        // Start the clock once the puzzle has actually loaded (the old LaunchedEffect(Unit)
+        // could run before loading finished and silently do nothing).
+        LaunchedEffect(viewModel.isLoaded, firstGame) {
+            if (firstGame) {
+                viewModel.pauseTimer()
+            } else if (viewModel.isLoaded && !viewModel.endGame && !viewModel.gameCompleted) {
                 viewModel.startTimer()
             }
         }
-        LaunchedEffect(sectionCompleteEvent) {
-            if (sectionCompleteEvent > 0) {
-                if (SDK_INT >= Build.VERSION_CODES.R) {
-                    localView.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                } else {
-                    localView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                }
-            }
-        }
-// ───────────────────── side effects ─────────────────────
-
-
-        LaunchedEffect(sectionCompleteEvent) {
-            if (sectionCompleteEvent > 0) {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                // consume the event
-                // nothing fancy, just let Compose breathe
-                delay(10)
-            }
-        }
-
-
-// (you had gameCompleted effect etc...)
 
         OnLifecycleEvent { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> {
-                    if (viewModel.gamePlaying) viewModel.startTimer()
-                }
-
                 Lifecycle.Event.ON_PAUSE -> {
-                    viewModel.pauseTimer()
+                    viewModel.pauseTimer()   // also saves the game
                     viewModel.currCell = Cell(-1, -1, 0)
                 }
 
-                Lifecycle.Event.ON_DESTROY -> viewModel.pauseTimer()
                 else -> {}
             }
         }
     }
 }
+
+/** Red hanko-style seal with 完 ("complete"), stamped on the solved board. */
+@Composable
+private fun SolvedSeal() {
+    val context = LocalContext.current
+    val sealFont = remember { FontFamily(KanjiFonts.bold(context)) }
+    Box(
+        modifier = Modifier
+            .size(64.dp)
+            .rotate(-10f)
+            .shadow(6.dp, RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(12.dp))
+            .background(HankoRed)
+            .border(2.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(12.dp))
+            .semantics { contentDescription = "Puzzle complete" },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "完",
+            fontSize = 36.sp,
+            lineHeight = 36.sp,
+            color = Color.White,
+            fontFamily = sealFont,
+            style = TextStyle(localeList = LocaleList("ja-JP"))
+        )
+    }
+}
+
+@Composable
+private fun ResultStat(label: String, value: String, theme: KanjiThemeColors) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = value,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Medium,
+            color = theme.primaryText
+        )
+        Text(
+            text = label.uppercase(),
+            fontSize = 11.sp,
+            color = theme.secondaryText
+        )
+    }
+}
+
 @Composable
 fun TopBoardSection(
     text: String,

@@ -26,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -34,6 +35,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -43,6 +45,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kaajjo.libresudoku.R
+import com.kaajjo.libresudoku.daily.PlayGamesHelper
+import com.kaajjo.libresudoku.ui.util.findActivity
 import com.kaajjo.libresudoku.destinations.GameScreenDestination
 import com.kaajjo.libresudoku.ui.components.AnimatedNavigation
 import com.kaajjo.libresudoku.ui.theme.KanjiThemeColors
@@ -73,8 +77,20 @@ fun HomeScreen(
 
     val theme = KanjiThemes.get(selectedKanjiTheme)
 
+    val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
+
     LaunchedEffect(Unit) {
         viewModel.isStartingGame = false
+        viewModel.refreshDaily()
+
+        // A daily time solved offline (or before sign-in) is sent now.
+        val pending = viewModel.dailyStore.pendingSubmission()
+        if (pending != null && activity != null) {
+            PlayGamesHelper.submitDailyTime(activity, pending.timeMs) { ok ->
+                if (ok) viewModel.onDailySubmitted()
+            }
+        }
     }
 
     LaunchedEffect(
@@ -89,7 +105,7 @@ fun HomeScreen(
             navigator.navigate(
                 GameScreenDestination(
                     gameUid = uid,
-                    playedBefore = false
+                    playedBefore = viewModel.navigatePlayedBefore
                 )
             )
 
@@ -122,6 +138,15 @@ fun HomeScreen(
                     fontSize = 32.sp,
                     color = theme.primaryText,
                     fontWeight = FontWeight.SemiBold
+                )
+
+                DailyChallengeCard(
+                    theme = theme,
+                    ui = viewModel.dailyUi,
+                    onPlay = { viewModel.startDailyGame() },
+                    onLeaderboard = {
+                        activity?.let { PlayGamesHelper.showDailyLeaderboard(it) }
+                    }
                 )
 
                 Column(
@@ -239,6 +264,138 @@ fun HomeScreen(
             }
         )
     }
+}
+
+@Composable
+private fun DailyChallengeCard(
+    theme: KanjiThemeColors,
+    ui: HomeViewModel.DailyUi,
+    onPlay: () -> Unit,
+    onLeaderboard: () -> Unit
+) {
+    val shape = RoundedCornerShape(22.dp)
+    val done = ui.status == HomeViewModel.DailyStatus.Solved ||
+            ui.status == HomeViewModel.DailyStatus.GaveUp
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth(0.86f)
+            .clip(shape)
+            .background(brush = theme.secondaryButton, shape = shape)
+            .border(1.dp, theme.accent.copy(alpha = 0.35f), shape)
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Daily Challenge",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = theme.primaryText
+            )
+            Text(
+                text = ui.dateLabel,
+                fontSize = 13.sp,
+                color = theme.secondaryText
+            )
+        }
+
+        Text(
+            text = when (ui.status) {
+                HomeViewModel.DailyStatus.NotStarted -> "One puzzle. Everyone. Fastest time wins."
+                HomeViewModel.DailyStatus.InProgress -> "Your daily puzzle is waiting."
+                HomeViewModel.DailyStatus.Solved -> "完  Solved in ${formatDailyTime(ui.timeMs)}"
+                HomeViewModel.DailyStatus.GaveUp -> "Better luck tomorrow."
+            },
+            fontSize = 14.sp,
+            color = if (ui.status == HomeViewModel.DailyStatus.Solved) theme.accent
+            else theme.secondaryText,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        if (done) {
+            Text(
+                text = "Next puzzle in ${formatCountdown(ui.nextInMinutes)}",
+                fontSize = 12.sp,
+                color = theme.secondaryText.copy(alpha = 0.8f)
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)
+        ) {
+            if (!done) {
+                SmallPill(
+                    theme = theme,
+                    text = if (ui.status == HomeViewModel.DailyStatus.InProgress) "Continue" else "Play",
+                    filled = true,
+                    onClick = onPlay
+                )
+            }
+            SmallPill(
+                theme = theme,
+                text = "Leaderboard",
+                filled = done,
+                onClick = onLeaderboard
+            )
+        }
+    }
+}
+
+@Composable
+private fun SmallPill(
+    theme: KanjiThemeColors,
+    text: String,
+    filled: Boolean,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(20.dp)
+    Box(
+        modifier = Modifier
+            .height(40.dp)
+            .clip(shape)
+            .background(
+                brush = if (filled) theme.primaryButton else theme.secondaryButton,
+                shape = shape
+            )
+            .border(
+                1.dp,
+                if (filled) theme.accent.copy(alpha = 0.45f) else theme.boardBorder.copy(alpha = 0.4f),
+                shape
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 22.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            fontSize = 15.sp,
+            color = if (filled) Color.White else theme.primaryText
+        )
+    }
+}
+
+private fun formatDailyTime(ms: Long): String {
+    val totalSeconds = ms / 1000
+    val h = totalSeconds / 3600
+    val m = (totalSeconds % 3600) / 60
+    val s = totalSeconds % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
+}
+
+private fun formatCountdown(minutes: Long): String {
+    val h = minutes / 60
+    val m = minutes % 60
+    return if (h > 0) "${h}h ${m}m" else "${m}m"
 }
 
 @Composable

@@ -1,5 +1,12 @@
 package com.kaajjo.libresudoku.ui.game.components
 
+import android.view.HapticFeedbackConstants
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -10,19 +17,37 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.intl.LocaleList
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kaajjo.libresudoku.KanjiMapper
+import com.kaajjo.libresudoku.ui.components.board.KanjiFonts
 import com.kaajjo.libresudoku.ui.theme.KanjiThemeColors
+
+/** Traditional seal-ink red, shared with the board's 完 seal. */
+val HankoRed = Color(0xFFB7282E)
 
 @Composable
 fun KanjiInputBar(
@@ -31,8 +56,21 @@ fun KanjiInputBar(
     remainingUses: List<Int>? = null,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
-    theme: KanjiThemeColors? = null
+    theme: KanjiThemeColors? = null,
+    completedSymbols: Set<Int> = emptySet(),
+    onKeyFeedback: (() -> Unit)? = null
 ) {
+    val context = LocalContext.current
+    val view = LocalView.current
+
+    // Same typeface and Japanese glyph forms as the board, so key and cell match exactly.
+    val kanjiStyle = remember {
+        TextStyle(
+            fontFamily = FontFamily(KanjiFonts.regular(context)),
+            localeList = LocaleList("ja-JP")
+        )
+    }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -97,6 +135,17 @@ fun KanjiInputBar(
                     MaterialTheme.colorScheme.outline.copy(alpha = 0.14f)
             }
 
+            // e.g. "Water, 水, 4 remaining" for TalkBack
+            val meaning = KanjiMapper.meaning(index + 1)
+            val description = buildString {
+                append(meaning.ifEmpty { symbol })
+                if (meaning.isNotEmpty()) append(", ").append(symbol)
+                if (remaining != null) {
+                    append(", ")
+                    append(if (isDepleted) "complete" else "$remaining remaining")
+                }
+            }
+
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -121,7 +170,14 @@ fun KanjiInputBar(
                         shape = shape
                     )
                     .clickable(enabled = !isDepleted) {
+                        if (onKeyFeedback != null) onKeyFeedback()
+                        else view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                         onSelect(symbol)
+                    }
+                    .clearAndSetSemantics {
+                        contentDescription = description
+                        role = Role.Button
+                        this.selected = isSelected
                     },
                 contentAlignment = Alignment.Center
             ) {
@@ -133,7 +189,8 @@ fun KanjiInputBar(
                         text = symbol,
                         fontSize = 23.sp,
                         fontWeight = FontWeight.Medium,
-                        color = symbolColor
+                        color = symbolColor,
+                        style = kanjiStyle
                     )
 
                     if (remaining != null) {
@@ -142,6 +199,43 @@ fun KanjiInputBar(
                             fontSize = 11.sp,
                             color = symbolColor.copy(alpha = 0.65f)
                         )
+                    }
+                }
+
+                // Red hanko seal when all nine of this Kanji are placed correctly.
+                // It "stamps" in with a small overshoot; on screen load it simply appears.
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 3.dp, end = 3.dp)
+                ) {
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = (index + 1) in completedSymbols,
+                        enter = scaleIn(
+                            initialScale = 1.9f,
+                            animationSpec = spring(
+                                dampingRatio = 0.45f,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        ) + fadeIn(tween(110)),
+                        exit = fadeOut(tween(150))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(15.dp)
+                                .rotate(-8f)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(HankoRed),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "完",
+                                fontSize = 9.sp,
+                                lineHeight = 9.sp,
+                                color = Color.White,
+                                style = kanjiStyle
+                            )
+                        }
                     }
                 }
             }

@@ -1,5 +1,6 @@
 package com.kaajjo.libresudoku.ui.home
 
+import android.content.Context
 import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -18,7 +19,10 @@ import com.kaajjo.libresudoku.data.database.model.SudokuBoard
 import com.kaajjo.libresudoku.data.datastore.AppSettingsManager
 import com.kaajjo.libresudoku.domain.repository.BoardRepository
 import com.kaajjo.libresudoku.domain.repository.SavedGameRepository
+import com.kaajjo.libresudoku.domain.usecase.board.GetBoardUseCase
+import com.kaajjo.libresudoku.daily.DailyChallengeStore
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.first
@@ -32,8 +36,49 @@ import com.kaajjo.libresudoku.core.qqwing.DailyPuzzleGenerator
 class HomeViewModel @Inject constructor(
     private val appSettingsManager: AppSettingsManager,
     private val boardRepository: BoardRepository,
-    private val savedGameRepository: SavedGameRepository
+    private val savedGameRepository: SavedGameRepository,
+    private val getBoardUseCase: GetBoardUseCase,
+    @ApplicationContext context: Context
 ) : ViewModel() {
+
+    // ───────────── Daily challenge ─────────────
+
+    /** What the Daily Challenge card on the Home screen shows. */
+    enum class DailyStatus { NotStarted, InProgress, Solved, GaveUp }
+
+    data class DailyUi(
+        val status: DailyStatus = DailyStatus.NotStarted,
+        val timeMs: Long = 0L,
+        val dateLabel: String = "",
+        val nextInMinutes: Long = 0L
+    )
+
+    val dailyStore = DailyChallengeStore(context)
+    var dailyUi by mutableStateOf(DailyUi())
+        private set
+
+    /** Whether the game we navigate to should resume a saved game. */
+    var navigatePlayedBefore by mutableStateOf(false)
+        private set
+
+    fun refreshDaily() {
+        val entry = dailyStore.todayEntry()
+        dailyUi = DailyUi(
+            status = when (entry?.status) {
+                null -> DailyStatus.NotStarted
+                DailyChallengeStore.Status.InProgress -> DailyStatus.InProgress
+                DailyChallengeStore.Status.Solved -> DailyStatus.Solved
+                DailyChallengeStore.Status.GaveUp -> DailyStatus.GaveUp
+            },
+            timeMs = entry?.timeMs ?: 0L,
+            dateLabel = DailyPuzzleGenerator.todayLabel(),
+            nextInMinutes = DailyPuzzleGenerator.timeUntilNext().toMinutes()
+        )
+    }
+
+    fun onDailySubmitted() {
+        dailyStore.markSubmitted()
+    }
 
     val lastSavedGame = savedGameRepository.getLast()
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
@@ -91,6 +136,7 @@ class HomeViewModel @Inject constructor(
         val size = gameTypeToGenerate.size
 
         // ✅ reset state on main thread
+        navigatePlayedBefore = false
         readyToPlay = false
         insertedBoardUid = -1L
         isStartingGame = true
@@ -202,24 +248,48 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Plays today's daily challenge:
+     *  - already started today → resume it;
+     *  - solved / given up today → nothing (the card shows the result and leaderboard);
+     *  - otherwise → generate today's puzzle (same for every player) and start it.
+     */
     fun startDailyGame() {
         if (isStartingGame) return
+
+        val today = dailyStore.todayEntry()
+        if (today != null && today.status != DailyChallengeStore.Status.InProgress) return
 
         readyToPlay = false
         insertedBoardUid = -1L
         isStartingGame = true
-        isGenerating = true
         isSolving = false
 
         viewModelScope.launch {
             try {
+                // Resume today's daily if its board still exists.
+                if (today != null) {
+                    val boardExists = withContext(Dispatchers.IO) {
+                        runCatching { getBoardUseCase(today.boardUid) }.isSuccess
+                    }
+                    if (boardExists) {
+                        val saved = withContext(Dispatchers.IO) {
+                            savedGameRepository.get(today.boardUid)
+                        }
+                        navigatePlayedBefore = saved != null && !saved.completed
+                        insertedBoardUid = today.boardUid
+                        readyToPlay = true
+                        return@launch
+                    }
+                }
+
+                isGenerating = true
                 val daily = withContext(Dispatchers.Default) {
                     DailyPuzzleGenerator.generateTodayPuzzle(
-                        difficulty = GameDifficulty.Easy,
+                        difficulty = DAILY_DIFFICULTY,
                         type = GameType.Default9x9
                     )
                 }
-
                 isGenerating = false
 
                 val uid = withContext(Dispatchers.IO) {
@@ -235,6 +305,9 @@ class HomeViewModel @Inject constructor(
                     )
                 }
 
+                if (uid > 0L) dailyStore.startToday(uid)
+
+                navigatePlayedBefore = false
                 insertedBoardUid = uid
                 readyToPlay = uid > 0L
 
@@ -267,6 +340,8 @@ class HomeViewModel @Inject constructor(
     fun giveUpLastGame() {
         viewModelScope.launch(Dispatchers.IO) {
             lastSavedGame.value?.let {
+                // Starting a normal game must not end today's daily challenge.
+                if (dailyStore.isDaily(it.uid)) return@let
                 if (!it.completed) {
                     savedGameRepository.update(
                         it.copy(
@@ -277,5 +352,10 @@ class HomeViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    private companion object {
+        /** Difficulty of the daily puzzle. Changing it changes everyone's puzzle. */
+        val DAILY_DIFFICULTY = GameDifficulty.Easy
     }
 }

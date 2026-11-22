@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Play Console → Play Games Services → Leaderboards → "Daily Challenge" → ID.
+         Replace the placeholder below with the real ID (it starts with "Cg"). -->
+    <string name="leaderboard_daily_challenge" translatable="false">CgkIuuHqsJMJEAIQAw</string>
+</resources>

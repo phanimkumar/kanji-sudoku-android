@@ -2,8 +2,6 @@ package com.kaajjo.libresudoku.ui.components.board
 
 import com.kaajjo.libresudoku.KanjiMapper
 
-import android.graphics.Paint
-import android.graphics.Rect
 import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -13,10 +11,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -26,6 +20,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -60,39 +55,33 @@ fun BoardPreview(
             .fillMaxWidth()
             .aspectRatio(1f)
             .padding(4.dp)
-    )
+    ) {
+        val density = LocalDensity.current
+        val context = LocalContext.current
 
-    {
         val maxWidth = constraints.maxWidth.toFloat()
-
-        val cellSize by remember(size) { mutableFloatStateOf(maxWidth / size.toFloat()) }
+        val cellSize = maxWidth / size.toFloat()
         val foregroundColor = boardColors.altForegroundColor
         val thickLineColor = boardColors.thickLineColor
         val thinLineColor = boardColors.thinLineColor
 
-        val vertThick by remember(size) { mutableIntStateOf(floor(sqrt(size.toFloat())).toInt()) }
-        val horThick by remember(size) { mutableIntStateOf(ceil(sqrt(size.toFloat())).toInt()) }
+        val vertThick = floor(sqrt(size.toFloat())).toInt()
+        val horThick = ceil(sqrt(size.toFloat())).toInt()
 
-        val fontSizePx = with(LocalDensity.current) { mainTextSize.toPx() }
+        val fontSizePx = with(density) { mainTextSize.toPx() }
+        val face = remember { KanjiFonts.regular(context) }
 
-        val textPaint by remember {
-            mutableStateOf(
-                Paint().apply {
-                    color = foregroundColor.toArgb()
-                    isAntiAlias = true
-                    textSize = fontSizePx
-                }
-            )
+        // Keyed on size/colour so thumbnails stay correct after theme or size changes.
+        val textPaint = remember(fontSizePx, foregroundColor, face) {
+            kanjiPaint(foregroundColor, fontSizePx, face)
         }
-        val width by remember { mutableFloatStateOf(textPaint.measureText("1")) }
-        val boardStrokeWidth = with(LocalDensity.current) { 1.1.dp.toPx() }
-        val thinLineWidth = with(LocalDensity.current) { 0.6.dp.toPx() }
-        val thickLineWidth = with(LocalDensity.current) { 1.1.dp.toPx() }
+        val glyphCenterY = remember(textPaint) { kanjiCenterY(textPaint) }
 
-        Canvas(
-            modifier = Modifier
-                .fillMaxSize()
-        ) {
+        val boardStrokeWidth = with(density) { 1.1.dp.toPx() }
+        val thinLineWidth = with(density) { 0.6.dp.toPx() }
+        val thickLineWidth = with(density) { 1.1.dp.toPx() }
+
+        Canvas(modifier = Modifier.fillMaxSize()) {
             // Outer rounded border
             drawRoundRect(
                 color = thickLineColor,
@@ -124,67 +113,52 @@ fun BoardPreview(
                 )
             }
 
-            val textBounds = Rect()
-            textPaint.getTextBounds("1", 0, 1, textBounds)
-
             drawIntoCanvas { canvas ->
+                val nc = canvas.nativeCanvas
                 if (board != null) {
-                    // Preview from full Cell board (use Kanji + colors)
+                    // Preview from full Cell board (Kanji + colours)
                     for (i in 0 until size) {
                         for (j in 0 until size) {
                             val cell = board[i][j]
-                            if (cell.value != 0) {
+                            if (cell.value == 0) continue
 
-                                textPaint.color = when {
-                                    cell.error -> AndroidColor.parseColor("#B71C1C")   // error red
-                                    cell.locked -> AndroidColor.parseColor("#001933")  // locked deep navy
-                                    else -> AndroidColor.parseColor("#5A0000")         // user dark maroon
-                                }
-
-                                val v = cell.value
-                                val displayText = if (v in 1..9) {
-                                    KanjiMapper.toSymbol(v)
-                                } else {
-                                    v.toString(16).uppercase()
-                                }
-
-                                val textWidth = textPaint.measureText(displayText)
-
-                                canvas.nativeCanvas.drawText(
-                                    displayText,
-                                    cell.col * cellSize + (cellSize - textWidth) / 2f,
-                                    (cell.row * cellSize + cellSize) -
-                                            (cellSize - textBounds.height()) / 2f,
-                                    textPaint
-                                )
+                            textPaint.color = when {
+                                cell.error -> AndroidColor.parseColor("#B71C1C")   // error red
+                                cell.locked -> AndroidColor.parseColor("#001933")  // locked deep navy
+                                else -> AndroidColor.parseColor("#5A0000")         // user dark maroon
                             }
+
+                            val v = cell.value
+                            val displayText =
+                                if (v in 1..9) KanjiMapper.toSymbol(v) else v.toString(16).uppercase()
+
+                            nc.drawText(
+                                displayText,
+                                (j + 0.5f) * cellSize,
+                                (i + 0.5f) * cellSize - glyphCenterY,
+                                textPaint
+                            )
                         }
                     }
+                    // Restore the shared paint's colour for the next draw.
+                    textPaint.color = foregroundColor.toArgb()
                 } else if (boardString != null && boardString.length == size * size) {
                     // Preview from string board (last played games)
-                    textPaint.color = foregroundColor.toArgb()
-
                     for (j in 0 until size) {
                         for (i in 0 until size) {
                             val ch = boardString[size * j + i]
-                            if (ch != '0') {
+                            if (ch == '0') continue
 
-                                val displayText = if (ch in '1'..'9') {
-                                    KanjiMapper.toSymbol(ch.digitToInt())   // 1..9 → Kanji
-                                } else {
-                                    ch.uppercase()                          // fallback
-                                }
+                            val displayText =
+                                if (ch in '1'..'9') KanjiMapper.toSymbol(ch.digitToInt())
+                                else ch.uppercase()
 
-                                val textWidth = textPaint.measureText(displayText)
-
-                                canvas.nativeCanvas.drawText(
-                                    displayText,
-                                    i * cellSize + (cellSize - textWidth) / 2f,
-                                    j * cellSize + cellSize -
-                                            (cellSize - textBounds.height()) / 2f,
-                                    textPaint
-                                )
-                            }
+                            nc.drawText(
+                                displayText,
+                                (i + 0.5f) * cellSize,
+                                (j + 0.5f) * cellSize - glyphCenterY,
+                                textPaint
+                            )
                         }
                     }
                 }

@@ -23,6 +23,10 @@ fun GameMenu(
     onSettingsClick: () -> Unit,
     onExportClick: () -> Unit,
     modifier: Modifier = Modifier,
+    soundEnabled: Boolean = true,
+    onSoundToggle: (() -> Unit)? = null,
+    hapticsEnabled: Boolean = true,
+    onHapticsToggle: (() -> Unit)? = null,
 ) {
     MaterialTheme(shapes = MaterialTheme.shapes.copy(extraSmall = MaterialTheme.shapes.large)) {
         DropdownMenu(
@@ -30,6 +34,24 @@ fun GameMenu(
             expanded = expanded,
             onDismissRequest = onDismiss
         ) {
+            if (onSoundToggle != null) {
+                DropdownMenuItem(
+                    text = { Text("Sound") },
+                    trailingIcon = {
+                        Checkbox(checked = soundEnabled, onCheckedChange = { onSoundToggle() })
+                    },
+                    onClick = onSoundToggle
+                )
+            }
+            if (onHapticsToggle != null) {
+                DropdownMenuItem(
+                    text = { Text("Vibration") },
+                    trailingIcon = {
+                        Checkbox(checked = hapticsEnabled, onCheckedChange = { onHapticsToggle() })
+                    },
+                    onClick = onHapticsToggle
+                )
+            }
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.action_give_up)) },
                 onClick = {
